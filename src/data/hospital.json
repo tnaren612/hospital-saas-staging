@@ -1,0 +1,29 @@
+{
+  "name": "Sri Srinivasa Hospital",
+  "tagline": "Excellence in Pulmonology & Respiratory Care",
+  "address": {
+    "line1": "Sri Srinivasa Hospital",
+    "line2": "Nellore Road",
+    "city": "Badvel",
+    "state": "Andhra Pradesh",
+    "pincode": "516227",
+    "country": "India"
+  },
+  "phones": ["8121864863", "9944867733", "8249432026"],
+  "emergencyPhone": "8121864863",
+  "whatsapp": "918121864863",
+  "email": "info@srisrinivasahospital.com",
+  "timings": {
+    "opd": "9:00 AM – 8:00 PM (Mon–Sat)",
+    "emergency": "24×7 Emergency & Critical Care"
+  },
+  "geo": {
+    "lat": 14.7392,
+    "lng": 79.0621
+  },
+  "social": {
+    "facebook": "https://facebook.com",
+    "instagram": "https://instagram.com",
+    "youtube": "https://youtube.com"
+  }
+}

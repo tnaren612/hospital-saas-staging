@@ -1,0 +1,35 @@
+{
+  "weekly": [
+    { "label": "Mon", "visitors": 120, "appointments": 18, "revenue": 24000 },
+    { "label": "Tue", "visitors": 145, "appointments": 22, "revenue": 31000 },
+    { "label": "Wed", "visitors": 132, "appointments": 19, "revenue": 27000 },
+    { "label": "Thu", "visitors": 168, "appointments": 25, "revenue": 36000 },
+    { "label": "Fri", "visitors": 190, "appointments": 28, "revenue": 41000 },
+    { "label": "Sat", "visitors": 210, "appointments": 32, "revenue": 48000 },
+    { "label": "Sun", "visitors": 95, "appointments": 12, "revenue": 16000 }
+  ],
+  "monthly": [
+    { "label": "Jan", "visitors": 3200, "appointments": 420, "revenue": 580000 },
+    { "label": "Feb", "visitors": 2980, "appointments": 390, "revenue": 540000 },
+    { "label": "Mar", "visitors": 3450, "appointments": 460, "revenue": 620000 },
+    { "label": "Apr", "visitors": 3600, "appointments": 480, "revenue": 650000 },
+    { "label": "May", "visitors": 3800, "appointments": 510, "revenue": 690000 },
+    { "label": "Jun", "visitors": 4100, "appointments": 540, "revenue": 730000 }
+  ],
+  "yearly": [
+    { "label": "2021", "visitors": 28000, "appointments": 3600, "revenue": 4200000 },
+    { "label": "2022", "visitors": 32000, "appointments": 4100, "revenue": 5100000 },
+    { "label": "2023", "visitors": 38000, "appointments": 4800, "revenue": 6200000 },
+    { "label": "2024", "visitors": 45000, "appointments": 5600, "revenue": 7400000 },
+    { "label": "2025", "visitors": 52000, "appointments": 6400, "revenue": 8600000 },
+    { "label": "2026", "visitors": 28000, "appointments": 3400, "revenue": 4600000 }
+  ],
+  "serviceMix": [
+    { "name": "Pulmonology", "value": 35 },
+    { "name": "Asthma Care", "value": 20 },
+    { "name": "COPD", "value": 15 },
+    { "name": "Critical Care", "value": 12 },
+    { "name": "Video Consult", "value": 10 },
+    { "name": "Other", "value": 8 }
+  ]
+}

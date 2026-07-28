@@ -1,0 +1,74 @@
+[
+  {
+    "id": "t1",
+    "name": "Ramesh Kumar",
+    "role": "Asthma Patient",
+    "content": "Dr. Sumanth's care transformed my asthma management. The hospital staff is caring and the facilities are excellent. Highly recommended for lung-related issues.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-1.jpg",
+    "date": "2025-11-12",
+    "treatment": "Asthma Clinic",
+    "featured": true,
+    "published": true
+  },
+  {
+    "id": "t2",
+    "name": "Lakshmi Devi",
+    "role": "COPD Patient Family",
+    "content": "My father received outstanding COPD treatment. Clear explanations, timely follow-ups, and genuine compassion. Sri Srinivasa Hospital is a blessing for Badvel.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-2.jpg",
+    "date": "2025-12-03",
+    "treatment": "COPD Care",
+    "featured": true,
+    "published": true
+  },
+  {
+    "id": "t3",
+    "name": "Suresh Babu",
+    "role": "Critical Care Recovery",
+    "content": "When I was critically ill with severe pneumonia, the ICU team saved my life. Professional, modern care right here in Badvel.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-3.jpg",
+    "date": "2026-01-18",
+    "treatment": "Critical Care / ICU",
+    "featured": true,
+    "published": true
+  },
+  {
+    "id": "t4",
+    "name": "Anitha Reddy",
+    "role": "Video Consultation Patient",
+    "content": "Video consultation was seamless. I got expert advice without traveling. Prescription and follow-up were perfectly handled.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-4.jpg",
+    "date": "2026-02-22",
+    "treatment": "Telemedicine",
+    "featured": true,
+    "published": true
+  },
+  {
+    "id": "t5",
+    "name": "Venkatesh Naidu",
+    "role": "Sleep Apnea Patient",
+    "content": "Sleep medicine guidance here was life-changing. I finally sleep well and feel energetic during the day.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-5.jpg",
+    "date": "2026-03-10",
+    "treatment": "Sleep Medicine",
+    "featured": false,
+    "published": true
+  },
+  {
+    "id": "t6",
+    "name": "Padma Sree",
+    "role": "Parent of Pediatric Patient",
+    "content": "Our child's breathing issues improved dramatically under Dr. Sumanth. Kind doctor, clean hospital, trustworthy care.",
+    "rating": 5,
+    "image": "/images/testimonials/patient-6.jpg",
+    "date": "2026-04-05",
+    "treatment": "Pediatric Respiratory Care",
+    "featured": false,
+    "published": true
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "icu",
+    "title": "Modern ICU",
+    "description": "Fully equipped intensive care unit with ventilators and continuous monitoring.",
+    "icon": "Hospital",
+    "image": "/images/facilities/icu.jpg"
+  },
+  {
+    "id": "diagnostics",
+    "title": "Advanced Diagnostics",
+    "description": "Pulmonary function lab, imaging support, and bedside diagnostic capabilities.",
+    "icon": "Microscope",
+    "image": "/images/facilities/diagnostics.jpg"
+  },
+  {
+    "id": "opd",
+    "title": "Comfortable OPD",
+    "description": "Patient-friendly outpatient clinics with minimal wait times and private consultation rooms.",
+    "icon": "DoorOpen",
+    "image": "/images/facilities/opd.jpg"
+  },
+  {
+    "id": "pharmacy",
+    "title": "In-House Pharmacy",
+    "description": "On-site pharmacy stocked with respiratory medications and essential drugs.",
+    "icon": "Pill",
+    "image": "/images/facilities/pharmacy.jpg"
+  },
+  {
+    "id": "ambulance",
+    "title": "Ambulance Service",
+    "description": "24×7 ambulance support for emergency transfers and home pickups.",
+    "icon": "Ambulance",
+    "image": "/images/facilities/ambulance.jpg"
+  },
+  {
+    "id": "waiting",
+    "title": "Patient Lounge",
+    "description": "Clean, spacious waiting areas designed for comfort of patients and families.",
+    "icon": "Sofa",
+    "image": "/images/facilities/lounge.jpg"
+  }
+]

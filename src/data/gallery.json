@@ -1,0 +1,93 @@
+[
+  {
+    "id": "g1",
+    "src": "/images/gallery/hospital-exterior.jpg",
+    "alt": "Hospital building exterior and campus",
+    "category": "hospital",
+    "order": 1
+  },
+  {
+    "id": "g2",
+    "src": "/images/gallery/reception.jpg",
+    "alt": "Hospital reception and patient waiting area",
+    "category": "hospital",
+    "order": 2
+  },
+  {
+    "id": "g3",
+    "src": "/images/gallery/icu.jpg",
+    "alt": "Critical care and intensive monitoring environment",
+    "category": "facilities",
+    "order": 3
+  },
+  {
+    "id": "g4",
+    "src": "/images/gallery/opd.jpg",
+    "alt": "Outpatient consultation room",
+    "category": "facilities",
+    "order": 4
+  },
+  {
+    "id": "g5",
+    "src": "/images/gallery/diagnostics.jpg",
+    "alt": "Diagnostic and medical imaging equipment",
+    "category": "facilities",
+    "order": 5
+  },
+  {
+    "id": "g6",
+    "src": "/images/gallery/consultation.jpg",
+    "alt": "Doctor consulting with a patient",
+    "category": "care",
+    "order": 6
+  },
+  {
+    "id": "g7",
+    "src": "/images/gallery/pharmacy.jpg",
+    "alt": "Hospital pharmacy and medications",
+    "category": "facilities",
+    "order": 7
+  },
+  {
+    "id": "g8",
+    "src": "/images/gallery/ambulance.jpg",
+    "alt": "Emergency ambulance service",
+    "category": "emergency",
+    "order": 8
+  },
+  {
+    "id": "g9",
+    "src": "/images/gallery/operation-theatre.jpg",
+    "alt": "Surgical and procedure environment",
+    "category": "facilities",
+    "order": 9
+  },
+  {
+    "id": "g10",
+    "src": "/images/gallery/laboratory.jpg",
+    "alt": "Medical laboratory workspace",
+    "category": "facilities",
+    "order": 10
+  },
+  {
+    "id": "g11",
+    "src": "/images/gallery/waiting-area.jpg",
+    "alt": "Hospital waiting and public area",
+    "category": "hospital",
+    "order": 11
+  },
+  {
+    "id": "g12",
+    "src": "/images/gallery/medical-equipment.jpg",
+    "alt": "Clinical medical equipment",
+    "category": "facilities",
+    "order": 12
+  },
+  {
+    "id": "g13",
+    "src": "/images/gallery/building-interior.jpg",
+    "alt": "Hospital interior corridor",
+    "category": "hospital",
+    "order": 13
+  }
+]

@@ -1,0 +1,68 @@
+﻿[
+  {
+    "id": "basic-lung",
+    "name": "Basic Lung Health Check",
+    "price": 1499,
+    "originalPrice": 1999,
+    "description": "Essential screening for common respiratory concerns.",
+    "includes": [
+      "Pulmonologist consultation",
+      "Spirometry (PFT basic)",
+      "Chest X-ray review",
+      "Oxygen saturation check",
+      "Personalized advice"
+    ],
+    "popular": false,
+    "image": "/images/services/pulmonology.jpg"
+  },
+  {
+    "id": "comprehensive",
+    "name": "Comprehensive Respiratory Package",
+    "price": 3499,
+    "originalPrice": 4999,
+    "description": "In-depth evaluation for asthma, COPD, and chronic breathlessness.",
+    "includes": [
+      "Specialist consultation",
+      "Full pulmonary function tests",
+      "Chest imaging coordination",
+      "Allergy screening guidance",
+      "Treatment action plan",
+      "One free follow-up visit"
+    ],
+    "popular": true,
+    "image": "/images/services/respiratory.jpg"
+  },
+  {
+    "id": "senior",
+    "name": "Senior Citizen Lung Care",
+    "price": 2499,
+    "originalPrice": 3299,
+    "description": "Age-focused package for elders with chronic respiratory issues.",
+    "includes": [
+      "Geriatric pulmonology consult",
+      "Spirometry",
+      "ECG coordination",
+      "Medication review",
+      "Home care tips"
+    ],
+    "popular": false,
+    "image": "/images/services/copd.jpg"
+  },
+  {
+    "id": "post-covid",
+    "name": "Post-COVID Recovery Package",
+    "price": 2999,
+    "originalPrice": 3999,
+    "description": "Rehabilitation-focused package for lingering respiratory symptoms.",
+    "includes": [
+      "Specialist assessment",
+      "Lung function evaluation",
+      "Breathing exercise plan",
+      "Nutritional guidance",
+      "Follow-up scheduling"
+    ],
+    "popular": false,
+    "image": "/images/services/critical-care.jpg"
+  }
+]
+

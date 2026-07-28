@@ -1,0 +1,45 @@
+{
+  "id": "dr-varaprasad",
+  "name": "Dr. Varaprasad Venkata Sumanth",
+  "title": "Consultant Pulmonologist & Critical Care Specialist",
+  "image": "/images/doctors/lead-specialist.png",
+  "banner": "/images/doctors/lead-specialist.png",
+  "qualifications": ["MBBS", "DNB", "FSM", "CCEBDM"],
+  "specializations": [
+    "Pulmonology",
+    "Lung Diseases",
+    "Asthma",
+    "COPD",
+    "Respiratory Medicine",
+    "Critical Care"
+  ],
+  "experience": [
+    "Ex Consultant Pulmonologist",
+    "Ex Assistant Professor",
+    "Extensive experience in managing complex respiratory disorders",
+    "Expertise in critical care and ICU management",
+    "Specialist in interventional pulmonology procedures"
+  ],
+  "awards": [
+    "Excellence in Pulmonology Practice",
+    "Community Healthcare Leadership Award",
+    "Best Clinical Educator Recognition"
+  ],
+  "certificates": [
+    "MBBS — Medical Degree",
+    "DNB — Diplomate of National Board",
+    "FSM — Fellowship in Sleep Medicine",
+    "CCEBDM — Certificate Course in Evidence Based Diabetes Management"
+  ],
+  "bio": "Dr. Varaprasad Venkata Sumanth is a highly regarded pulmonologist dedicated to advanced respiratory care in Badvel and surrounding regions. With qualifications including MBBS, DNB, FSM, and CCEBDM, and experience as a former Consultant Pulmonologist and Assistant Professor, he brings academic excellence and clinical expertise to Sri Srinivasa Hospital. His practice focuses on asthma, COPD, lung diseases, respiratory medicine, and critical care — delivering compassionate, evidence-based treatment for every patient.",
+  "gallery": [
+    "/images/doctors/lead-specialist.png",
+    "/images/doctors/gallery-1.jpg",
+    "/images/doctors/gallery-2.jpg",
+    "/images/doctors/gallery-3.jpg",
+    "/images/doctors/gallery-4.jpg"
+  ],
+  "consultationFee": 500,
+  "videoConsultationFee": 400,
+  "languages": ["English", "Telugu", "Hindi"]
+}

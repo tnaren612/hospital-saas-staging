@@ -1,0 +1,66 @@
+[
+  {
+    "id": "pulmonology",
+    "title": "Pulmonology",
+    "description": "Comprehensive diagnosis and treatment of lung and respiratory conditions by specialist pulmonologists.",
+    "icon": "Lungs",
+    "image": "/images/services/pulmonology.jpg",
+    "features": ["Lung function tests", "Bronchoscopy", "Interstitial lung disease care", "Personalized treatment plans"]
+  },
+  {
+    "id": "asthma-care",
+    "title": "Asthma Care",
+    "description": "Specialized asthma clinics with action plans, inhaler training, and long-term control strategies.",
+    "icon": "Wind",
+    "image": "/images/services/asthma.jpg",
+    "features": ["Asthma action plans", "Allergy evaluation", "Pediatric & adult care", "Peak flow monitoring"]
+  },
+  {
+    "id": "copd",
+    "title": "COPD Management",
+    "description": "Evidence-based COPD programs to improve breathing, reduce exacerbations, and enhance quality of life.",
+    "icon": "Activity",
+    "image": "/images/services/copd.jpg",
+    "features": ["Pulmonary rehabilitation", "Smoking cessation", "Oxygen therapy guidance", "Exacerbation prevention"]
+  },
+  {
+    "id": "critical-care",
+    "title": "Critical Care & ICU",
+    "description": "24×7 intensive care for critically ill patients with advanced monitoring and ventilatory support.",
+    "icon": "HeartPulse",
+    "image": "/images/services/critical-care.jpg",
+    "features": ["Ventilator support", "Multi-parameter monitoring", "Sepsis management", "Round-the-clock specialists"]
+  },
+  {
+    "id": "sleep-medicine",
+    "title": "Sleep Medicine",
+    "description": "Evaluation and treatment of sleep-related breathing disorders including sleep apnea.",
+    "icon": "Moon",
+    "image": "/images/services/sleep.jpg",
+    "features": ["Sleep study guidance", "CPAP/BiPAP therapy", "Snoring evaluation", "Lifestyle counseling"]
+  },
+  {
+    "id": "respiratory-medicine",
+    "title": "Respiratory Medicine",
+    "description": "Full-spectrum respiratory care from infections to chronic lung disease management.",
+    "icon": "Stethoscope",
+    "image": "/images/services/respiratory.jpg",
+    "features": ["TB & infection care", "Pneumonia treatment", "Chest pain evaluation", "Post-COVID rehabilitation"]
+  },
+  {
+    "id": "video-consult",
+    "title": "Video Consultation",
+    "description": "Secure telemedicine consultations with our pulmonologist from the comfort of your home.",
+    "icon": "Video",
+    "image": "/images/services/video.jpg",
+    "features": ["Secure video calls", "E-prescriptions", "Follow-up care", "Flexible scheduling"]
+  },
+  {
+    "id": "emergency",
+    "title": "Emergency Care",
+    "description": "Rapid response for respiratory emergencies, acute breathlessness, and critical situations.",
+    "icon": "Siren",
+    "image": "/images/services/emergency.jpg",
+    "features": ["24×7 ambulance", "Triage protocol", "Emergency airway care", "Immediate ICU transfer"]
+  }
+]

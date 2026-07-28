@@ -1,0 +1,24 @@
+{
+  "hospital": {
+    "building": "/assets/images/hospital/building.svg",
+    "hero": "/assets/images/hospital/hero.svg",
+    "logo": "/assets/images/hospital/logo.svg",
+    "og": "/assets/images/hospital/og-image.svg"
+  },
+  "doctor": {
+    "profile": "/images/doctors/profile.jpg",
+    "banner": "/images/doctors/banner.jpg",
+    "gallery": [
+      "/images/doctors/gallery-1.jpg",
+      "/images/doctors/gallery-2.jpg",
+      "/images/doctors/gallery-3.jpg",
+      "/images/doctors/gallery-4.jpg"
+    ]
+  },
+  "placeholders": {
+    "avatar": "/assets/images/placeholders/avatar.svg",
+    "service": "/assets/images/placeholders/service.svg",
+    "blog": "/assets/images/placeholders/blog.svg",
+    "gallery": "/assets/images/placeholders/gallery.svg"
+  }
+}

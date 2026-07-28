@@ -1,0 +1,38 @@
+[
+  {
+    "id": "star",
+    "name": "Star Health",
+    "logo": "/assets/images/insurance/star.svg",
+    "description": "Cashless & reimbursement options available for eligible policies."
+  },
+  {
+    "id": "niva",
+    "name": "Niva Bupa",
+    "logo": "/assets/images/insurance/niva.svg",
+    "description": "Network hospital benefits for health insurance members."
+  },
+  {
+    "id": "hdfc",
+    "name": "HDFC Ergo",
+    "logo": "/assets/images/insurance/hdfc.svg",
+    "description": "Support for planned admissions and emergency care claims."
+  },
+  {
+    "id": "icici",
+    "name": "ICICI Lombard",
+    "logo": "/assets/images/insurance/icici.svg",
+    "description": "Assistance with pre-authorization and claim documentation."
+  },
+  {
+    "id": "care",
+    "name": "Care Health",
+    "logo": "/assets/images/insurance/care.svg",
+    "description": "Coverage support for respiratory and critical care packages."
+  },
+  {
+    "id": "reliance",
+    "name": "Reliance General",
+    "logo": "/assets/images/insurance/reliance.svg",
+    "description": "Partner insurer for inpatient and day-care procedures."
+  }
+]

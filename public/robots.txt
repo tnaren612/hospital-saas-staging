@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin
+Disallow: /admin/
+Disallow: /patient/dashboard
+Disallow: /video-consult/meeting
+
+Sitemap: https://srisrinivasahospital.com/sitemap.xml

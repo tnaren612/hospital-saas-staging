@@ -1,0 +1,65 @@
+[
+  {
+    "id": "staff-nurse",
+    "title": "Staff Nurse — Critical Care / Respiratory",
+    "department": "Nursing",
+    "type": "Full-time",
+    "location": "Badvel, Andhra Pradesh",
+    "postedAt": "2026-06-01",
+    "summary": "Provide bedside nursing for respiratory and critical care patients in a specialist hospital setting.",
+    "requirements": [
+      "GNM / B.Sc Nursing with valid registration",
+      "1+ years ICU or ward experience preferred",
+      "Strong communication in Telugu and English",
+      "Willingness to work rotational shifts"
+    ],
+    "responsibilities": [
+      "Monitor vitals and respiratory status",
+      "Assist pulmonology and ICU teams",
+      "Document care accurately",
+      "Support patient and family education"
+    ]
+  },
+  {
+    "id": "front-desk",
+    "title": "Front Desk / Reception Executive",
+    "department": "Administration",
+    "type": "Full-time",
+    "location": "Badvel, Andhra Pradesh",
+    "postedAt": "2026-06-15",
+    "summary": "First point of contact for patients — appointments, insurance queries, and hospital navigation.",
+    "requirements": [
+      "Graduate in any discipline",
+      "Comfortable with computers and phone systems",
+      "Patient-friendly communication skills",
+      "Prior hospital or clinic experience is a plus"
+    ],
+    "responsibilities": [
+      "Register patients and schedule appointments",
+      "Guide visitors to OPD / diagnostics",
+      "Coordinate with billing and doctors",
+      "Maintain a calm, professional reception"
+    ]
+  },
+  {
+    "id": "lab-technician",
+    "title": "Lab / Diagnostics Technician",
+    "department": "Diagnostics",
+    "type": "Full-time",
+    "location": "Badvel, Andhra Pradesh",
+    "postedAt": "2026-07-01",
+    "summary": "Support pulmonary diagnostics and routine laboratory workflows with precision and care.",
+    "requirements": [
+      "DMLT / B.Sc MLT or equivalent",
+      "Experience with sample handling and equipment",
+      "Attention to detail and safety protocols",
+      "Ability to work under supervision of clinicians"
+    ],
+    "responsibilities": [
+      "Prepare patients for diagnostic tests",
+      "Operate and maintain equipment",
+      "Record results accurately",
+      "Follow infection control standards"
+    ]
+  }
+]

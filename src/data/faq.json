@@ -1,0 +1,80 @@
+[
+  {
+    "id": "f1",
+    "question": "What are the hospital visiting hours?",
+    "answer": "OPD consultations are generally available from 9:00 AM to 8:00 PM, Monday to Saturday. Emergency and critical care services operate 24×7. Please call ahead to confirm the doctor's schedule for the day.",
+    "category": "general"
+  },
+  {
+    "id": "f2",
+    "question": "How do I book an appointment with Dr. Sumanth?",
+    "answer": "You can book online through our Appointment page, use the WhatsApp button, call us on 8121864863 / 9944867733 / 8249432026, or use the AI assistant on the website. Same-day slots depend on availability.",
+    "category": "appointments"
+  },
+  {
+    "id": "f3",
+    "question": "Do you offer video consultations?",
+    "answer": "Yes. Video consultations with our pulmonologist can be booked online. After confirmation, you can join the secure demo meeting room from your dashboard or the video consultation page.",
+    "category": "services"
+  },
+  {
+    "id": "f4",
+    "question": "What is the consultation fee?",
+    "answer": "In-person consultation is typically ₹500 and video consultation is typically ₹400. Package prices and investigations are charged separately. Fees may vary; please confirm while booking.",
+    "category": "fees"
+  },
+  {
+    "id": "f5",
+    "question": "Is emergency care available 24×7?",
+    "answer": "Yes. Sri Srinivasa Hospital provides 24×7 emergency response and critical care support for respiratory and medical emergencies. Call our emergency number immediately in case of severe breathlessness.",
+    "category": "emergency"
+  },
+  {
+    "id": "f6",
+    "question": "Which insurance partners do you support?",
+    "answer": "We support major insurers including Star Health, Niva Bupa, HDFC Ergo, ICICI Lombard, Care Health, and Reliance General. Coverage depends on your policy terms. Our desk can help with documentation.",
+    "category": "insurance"
+  },
+  {
+    "id": "f7",
+    "question": "Where is the hospital located?",
+    "answer": "Sri Srinivasa Hospital, Nellore Road, Badvel, Andhra Pradesh 516227, India. Use the Contact page map for directions.",
+    "category": "location"
+  },
+  {
+    "id": "f8",
+    "question": "What conditions does the pulmonology department treat?",
+    "answer": "We treat asthma, COPD, lung infections, interstitial lung disease, sleep-related breathing disorders, post-COVID respiratory issues, and provide critical care for severe respiratory illness.",
+    "category": "services"
+  },
+  {
+    "id": "f9",
+    "question": "Can I get health packages for lung screening?",
+    "answer": "Yes. We offer Basic Lung Health Check, Comprehensive Respiratory Package, Senior Citizen Lung Care, and Post-COVID Recovery packages. Visit the Health Packages page for details.",
+    "category": "packages"
+  },
+  {
+    "id": "f10",
+    "question": "How can I access my appointment history?",
+    "answer": "Use Patient Login with your phone number and the OTP flow. Your dashboard lists upcoming appointments, history, reports, and invoices when Supabase patient portal is enabled.",
+    "category": "patient"
+  },
+  {
+    "id": "f11",
+    "question": "How do online payments work?",
+    "answer": "You can pay consultation or package fees online via Razorpay (UPI, cards, netbanking) after booking. You will receive a payment confirmation and invoice when the transaction succeeds. Cash payment at the hospital is also supported when enabled by admin.",
+    "category": "fees"
+  },
+  {
+    "id": "f12",
+    "question": "Are you hiring? How do I apply?",
+    "answer": "Open positions are listed on our Careers page. Submit an online application with your contact details and cover note. Our HR team reviews applications and contacts shortlisted candidates.",
+    "category": "careers"
+  },
+  {
+    "id": "f13",
+    "question": "Do you have pharmacy and diagnostics on site?",
+    "answer": "Yes. Sri Srinivasa Hospital provides in-house pharmacy support and diagnostic coordination for respiratory evaluation, including pulmonary function testing as advised by the specialist.",
+    "category": "services"
+  }
+]

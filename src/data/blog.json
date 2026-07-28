@@ -1,0 +1,81 @@
+﻿[
+  {
+    "id": "b1",
+    "slug": "understanding-asthma-triggers",
+    "title": "Understanding Asthma Triggers in Indian Climate",
+    "excerpt": "Learn how dust, pollen, pollution, and seasonal changes affect asthma â€” and practical ways to stay in control.",
+    "content": "## Why asthma flares up\n\nAsthma symptoms often worsen with allergens, air pollution, cold air, exercise, and respiratory infections. In regions like Andhra Pradesh, dust and seasonal changes can be significant triggers.\n\n## Common triggers\n\n- Dust mites and mold\n- Outdoor air pollution\n- Cigarette smoke\n- Viral infections\n- Strong fragrances and cleaning chemicals\n\n## What you can do\n\n1. Keep inhalers accessible and use them as prescribed.\n2. Monitor peak flow if advised by your doctor.\n3. Avoid known allergens and smoke exposure.\n4. Seek medical help for night-time symptoms or frequent rescue inhaler use.\n\n## When to visit a pulmonologist\n\nIf you experience wheezing, chest tightness, or breathlessness more than twice a week, schedule a consultation for a personalized asthma action plan.",
+    "category": "asthma",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/asthma-triggers.svg",
+    "publishedAt": "2026-01-15",
+    "readTime": 5,
+    "tags": ["asthma", "prevention", "lungs"]
+  },
+  {
+    "id": "b2",
+    "slug": "copd-breathing-exercises",
+    "title": "Simple Breathing Exercises for COPD Patients",
+    "excerpt": "Evidence-informed breathing techniques that can help reduce breathlessness and improve daily activity.",
+    "content": "## Living better with COPD\n\nCOPD can limit daily activities, but structured breathing techniques and pulmonary rehabilitation principles can improve comfort and stamina.\n\n## Techniques to try\n\n### Pursed-lip breathing\nInhale slowly through the nose, then exhale gently through pursed lips as if blowing out a candle.\n\n### Diaphragmatic breathing\nPlace a hand on your abdomen and breathe so that the belly rises more than the chest.\n\n## Important\n\nAlways practice under medical guidance, especially if you use oxygen therapy or have recent exacerbations.",
+    "category": "copd",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/copd-exercises.svg",
+    "publishedAt": "2026-02-02",
+    "readTime": 6,
+    "tags": ["copd", "exercise", "rehabilitation"]
+  },
+  {
+    "id": "b3",
+    "slug": "when-to-seek-emergency-respiratory-care",
+    "title": "When to Seek Emergency Respiratory Care",
+    "excerpt": "Know the red-flag symptoms of severe breathlessness that need immediate hospital attention.",
+    "content": "## Red-flag symptoms\n\nCall emergency services or reach the hospital immediately if you notice:\n\n- Sudden severe breathlessness\n- Bluish lips or fingertips\n- Confusion or extreme drowsiness\n- Chest pain with breathing difficulty\n- Inability to speak full sentences\n\n## Why minutes matter\n\nRespiratory failure can escalate quickly. Early oxygen support, medications, and critical care monitoring can be life-saving.\n\nSri Srinivasa Hospital provides 24Ã—7 emergency and ICU support for respiratory emergencies.",
+    "category": "lungs",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/emergency.svg",
+    "publishedAt": "2026-02-20",
+    "readTime": 4,
+    "tags": ["emergency", "critical care", "lungs"]
+  },
+  {
+    "id": "b4",
+    "slug": "post-covid-lung-recovery-tips",
+    "title": "Post-COVID Lung Recovery: Practical Tips",
+    "excerpt": "How to rebuild lung stamina safely after COVID-19 with medical supervision and gradual activity.",
+    "content": "## Recovery takes patience\n\nSome people experience lingering cough, fatigue, or reduced exercise tolerance after COVID-19. A structured recovery plan helps.\n\n## Tips\n\n- Resume activity gradually\n- Stay hydrated and rest adequately\n- Practice breathing exercises recommended by your doctor\n- Avoid smoking and polluted environments\n- Attend follow-up evaluations if symptoms persist\n\n## Get specialist help\n\nIf breathlessness continues beyond a few weeks, consult a pulmonologist for evaluation and a tailored rehabilitation plan.",
+    "category": "covid",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/post-covid.svg",
+    "publishedAt": "2026-03-08",
+    "readTime": 5,
+    "tags": ["covid", "recovery", "lungs"]
+  },
+  {
+    "id": "b5",
+    "slug": "protecting-lungs-from-air-pollution",
+    "title": "Protecting Your Lungs from Air Pollution",
+    "excerpt": "Everyday strategies to reduce pollution exposure and protect long-term lung health.",
+    "content": "## Pollution and your lungs\n\nFine particulate matter can inflame airways and worsen asthma and COPD.\n\n## Protection strategies\n\n- Check air quality when planning outdoor activity\n- Use masks on high-pollution days if advised\n- Keep indoor air cleaner with ventilation and reduced smoke\n- Avoid outdoor exercise near heavy traffic during peak hours\n\n## High-risk groups\n\nChildren, elders, and people with chronic lung disease should be especially careful and maintain regular medical follow-up.",
+    "category": "general",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/pollution.svg",
+    "publishedAt": "2026-03-28",
+    "readTime": 4,
+    "tags": ["prevention", "pollution", "general health"]
+  },
+  {
+    "id": "b6",
+    "slug": "sleep-apnea-warning-signs",
+    "title": "Sleep Apnea: Warning Signs You Shouldn't Ignore",
+    "excerpt": "Loud snoring, daytime sleepiness, and morning headaches may signal obstructive sleep apnea.",
+    "content": "## What is sleep apnea?\n\nObstructive sleep apnea causes repeated breathing pauses during sleep, reducing oxygen levels and fragmenting rest.\n\n## Warning signs\n\n- Loud, chronic snoring\n- Witnessed breathing pauses\n- Daytime sleepiness\n- Morning headaches\n- Difficulty concentrating\n\n## Why treatment matters\n\nUntreated sleep apnea is linked to hypertension, heart disease, and accidents due to drowsiness. Evaluation by a specialist can guide CPAP therapy and lifestyle measures.",
+    "category": "lungs",
+    "author": "Dr. Varaprasad Venkata Sumanth",
+    "coverImage": "/assets/images/blog/sleep-apnea.svg",
+    "publishedAt": "2026-04-12",
+    "readTime": 5,
+    "tags": ["sleep", "lungs", "diagnosis"]
+  }
+]
+
