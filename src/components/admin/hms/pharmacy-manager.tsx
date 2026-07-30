@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import type { Medicine } from "@/lib/phase2/types";
+import { PortalLogout } from "@/components/auth/portal-logout";
 
 export function PharmacyManager() {
   const [meds, setMeds] = useState<Medicine[]>([]);
@@ -133,9 +134,12 @@ export function PharmacyManager() {
         title="Pharmacy Management"
         description="Inventory, sales, low-stock and expiry alerts"
         actions={
-          <Button size="sm" variant="outline" onClick={() => void load()}>
-            <RefreshCw className="h-4 w-4" /> Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => void load()}>
+              <RefreshCw className="h-4 w-4" /> Refresh
+            </Button>
+            <PortalLogout />
+          </div>
         }
       />
       {actionError ? (
