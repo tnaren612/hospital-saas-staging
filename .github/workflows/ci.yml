@@ -26,6 +26,9 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Setup npm
+        run: npm install --global npm@11.6.2
+
       - name: Install dependencies
         run: npm ci
 
@@ -60,6 +63,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Setup npm
+        run: npm install --global npm@11.6.2
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Build staging-connected application
