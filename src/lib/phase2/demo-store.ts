@@ -227,7 +227,10 @@ export const demoPhase2 = {
     for (const item of input.items) {
       if (!item.medicine_id) continue;
       const m = store().medicines.find((x) => x.id === item.medicine_id);
-      if (m) m.stock_qty = Math.max(0, m.stock_qty - item.qty);
+      if (m && m.stock_qty < item.qty) {
+        throw new Error(`Insufficient stock for ${item.name}. Available: ${m.stock_qty}`);
+      }
+      if (m) m.stock_qty -= item.qty;
     }
     store().sales.unshift(sale);
     return sale;

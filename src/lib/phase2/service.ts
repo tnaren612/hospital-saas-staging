@@ -393,6 +393,19 @@ export async function createPharmacySale(
       subtotal - (input.discount || 0) + (input.tax || 0)
     );
     const sb = client();
+    for (const item of input.items) {
+      if (!item.medicine_id) continue;
+      let stockQuery = sb
+        .from("medicines")
+        .select("stock_qty")
+        .eq("id", item.medicine_id);
+      stockQuery = withHospitalEq(stockQuery, opts?.hospitalId);
+      const { data: stock, error: stockError } = await stockQuery.maybeSingle();
+      if (stockError) throw stockError;
+      if (!stock || Number(stock.stock_qty) < item.qty) {
+        throw new Error(`Insufficient stock for ${item.name}. Available: ${Number(stock?.stock_qty || 0)}`);
+      }
+    }
     const { data, error } = await sb
       .from("pharmacy_sales")
       .insert(
@@ -431,7 +444,8 @@ export async function createPharmacySale(
           .update({ stock_qty: Math.max(0, Number(m.stock_qty) - item.qty) })
           .eq("id", item.medicine_id);
         uq = withHospitalEq(uq, opts?.hospitalId);
-        await uq;
+        const { error: updateError } = await uq;
+        if (updateError) throw updateError;
         await sb.from("pharmacy_stock_movements").insert(
           stampHospital(
             {
@@ -446,7 +460,8 @@ export async function createPharmacySale(
       }
     }
     return data as PharmacySale;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Insufficient stock")) throw error;
     return demoPhase2.createSale(input);
   }
 }
