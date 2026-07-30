@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { isAdminAuthenticated, setAdminAuthenticated } from "@/lib/storage";
+import { isAdminAuthenticated } from "@/lib/storage";
 
 export function AdminLoginContent() {
   const router = useRouter();
@@ -26,14 +26,7 @@ export function AdminLoginContent() {
     e.preventDefault();
     setLoading(true);
     await new Promise((r) => setTimeout(r, 600));
-    // Demo password
-    if (password === "admin123") {
-      setAdminAuthenticated(true);
-      toast.success("Welcome, Admin");
-      router.push("/admin/dashboard");
-    } else {
-      toast.error("Invalid password. Demo: admin123");
-    }
+    toast.error("Local demo authentication is not configured.");
     setLoading(false);
   };
 
@@ -47,7 +40,7 @@ export function AdminLoginContent() {
             </div>
             <h1 className="text-2xl font-bold">Admin Portal</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Demo password: <strong>admin123</strong>
+              Configure Supabase authentication to continue.
             </p>
           </div>
           <form onSubmit={login} className="space-y-4">

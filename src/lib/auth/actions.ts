@@ -109,9 +109,10 @@ export async function adminLoginAction(
     };
   }
 
-  // Local-only fallback when Supabase keys are not configured
-  if (!isAdminAuthEnabled()) {
-    if (password === "admin123") {
+  // Local-only fallback requires an explicit non-production secret.
+  if (!isAdminAuthEnabled() && (process.env.NODE_ENV as string) !== "production") {
+    const demoPassword = process.env.LOCAL_DEMO_PASSWORD;
+    if (demoPassword && password === demoPassword) {
       (await cookies()).set(DEMO_COOKIE, "1", {
         httpOnly: true,
         sameSite: "lax",
