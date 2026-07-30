@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "framer-motion";
 import { format, addDays } from "date-fns";
@@ -94,7 +94,7 @@ export function AppointmentForm({
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     reset,
     formState: { errors },
@@ -110,10 +110,11 @@ export function AppointmentForm({
     },
   });
 
-  const selectedDate = watch("date");
-  const selectedSlot = watch("timeSlot");
-  const selectedDepartmentId = watch("departmentId");
-  const selectedDoctorId = watch("doctorId");
+  const [selectedDate, selectedSlot, selectedDepartmentId, selectedDoctorId] =
+    useWatch({
+      control,
+      name: ["date", "timeSlot", "departmentId", "doctorId"],
+    });
 
   const selectedDoctor = useMemo(
     () => doctors.find((d) => d.id === selectedDoctorId) || null,

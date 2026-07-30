@@ -7,7 +7,7 @@ import {
   getRelatedDoctors,
   physicianJsonLd,
 } from "@/lib/doctors/service";
-import { createMetadata } from "@/lib/seo";
+import { createMetadata, serializeJsonLd } from "@/lib/seo";
 import { SITE_URL } from "@/lib/data";
 import { faqJsonLd } from "@/lib/seo";
 
@@ -68,7 +68,7 @@ export default async function DoctorSlugPage(props: PageProps) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(schemas) }}
       />
       <DoctorProfileContent doctor={doctor} related={related} />
     </>

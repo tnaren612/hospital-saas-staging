@@ -9,7 +9,7 @@ import {
   packageServiceJsonLd,
 } from "@/lib/health-packages/service";
 import { listPublicDoctors } from "@/lib/doctors/service";
-import { createMetadata, faqJsonLd } from "@/lib/seo";
+import { createMetadata, faqJsonLd, serializeJsonLd } from "@/lib/seo";
 import { SITE_URL } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -71,7 +71,7 @@ export default async function HealthPackageDetailPage(props: PageProps) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(schemas) }}
       />
       <PackageDetailContent
         pkg={pkg}

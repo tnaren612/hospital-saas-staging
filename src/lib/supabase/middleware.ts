@@ -24,6 +24,7 @@ import {
   HOSPITAL_SLUG_HEADER,
   resolveHospitalSlug,
 } from "@/lib/hospital/resolve-tenant";
+import { assertSameOrigin } from "@/lib/auth/csrf";
 
 function redirectTo(request: NextRequest, pathname: string, next?: string) {
   const url = request.nextUrl.clone();
@@ -116,6 +117,26 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/patient") ||
     pathname.startsWith("/api/payments") ||
     pathname.startsWith("/api/invoices");
+
+  // Cookie-authenticated mutations must originate from this application.
+  // Non-cookie integrations (for example signed webhooks) retain their own
+  // authentication and are not blocked by this browser-focused CSRF guard.
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase()) &&
+    hasAuthCookie(request)
+  ) {
+    const originCheck = assertSameOrigin(request, { allowMissing: false });
+    if (!originCheck.ok) {
+      return NextResponse.json(
+        {
+          error: "Forbidden",
+          code: "CSRF_ORIGIN",
+          reason: originCheck.reason,
+        },
+        { status: 403 }
+      );
+    }
+  }
 
   // --- Local demo: only /admin/* gated by demo cookie ---
   if (!supabaseEnabled) {

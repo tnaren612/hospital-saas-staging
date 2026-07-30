@@ -13,6 +13,7 @@ import {
   createMetadata,
   hospitalJsonLd,
   medicalBusinessJsonLd,
+  serializeJsonLd,
 } from "@/lib/seo";
 import { getHospitalConfig } from "@/lib/hospital/service";
 
@@ -71,13 +72,13 @@ export default async function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(hospitalJsonLd(config)),
+            __html: serializeJsonLd(hospitalJsonLd(config)),
           }}
         />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(medicalBusinessJsonLd(config)),
+            __html: serializeJsonLd(medicalBusinessJsonLd(config)),
           }}
         />
       </head>

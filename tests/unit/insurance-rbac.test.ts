@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ROLES,
   canAccessFeature,
   canAccessInsurance,
 } from "../../src/lib/auth/roles";

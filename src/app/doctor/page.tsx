@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getFeaturedDoctor } from "@/lib/doctors/service";
-import { createMetadata } from "@/lib/seo";
+import { createMetadata, serializeJsonLd } from "@/lib/seo";
 import { DoctorProfileContent } from "@/components/pages/doctor-profile-content";
 import {
   breadcrumbJsonLd,
@@ -58,7 +58,7 @@ export default async function DoctorPage() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemas) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(schemas) }}
       />
       <DoctorProfileContent doctor={doctor} related={related} />
     </>

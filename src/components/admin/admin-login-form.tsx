@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import toast from "react-hot-toast";
 import {
@@ -46,7 +46,8 @@ export function AdminLoginForm() {
     handleSubmit,
     formState: { errors },
     setValue,
-    watch,
+    control,
+    getValues,
   } = useForm<AdminLoginFormValues>({
     resolver: zodResolver(adminLoginSchema),
     defaultValues: {
@@ -56,7 +57,7 @@ export function AdminLoginForm() {
     },
   });
 
-  const remember = watch("remember");
+  const remember = useWatch({ control, name: "remember" });
 
   useEffect(() => {
     try {
@@ -71,7 +72,7 @@ export function AdminLoginForm() {
   const onForgotSubmit = () => {
     setServerError(null);
     setServerInfo(null);
-    const email = watch("email")?.trim().toLowerCase() || "";
+    const email = getValues("email")?.trim().toLowerCase() || "";
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setServerError("Enter a valid email address");
       return;

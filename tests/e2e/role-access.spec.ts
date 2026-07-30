@@ -58,6 +58,15 @@ const roles: RoleCase[] = [
     restrictedPath: "/admin/settings",
   },
   {
+    name: "radiology technician",
+    emailEnv: "E2E_RADIOLOGY_EMAIL",
+    passwordEnv: "E2E_RADIOLOGY_PASSWORD",
+    loginPath: "/admin/login",
+    homePattern: /\/admin\/radiology/,
+    allowedPath: "/admin/radiology",
+    restrictedPath: "/admin/settings",
+  },
+  {
     name: "receptionist",
     emailEnv: "E2E_RECEPTION_EMAIL",
     passwordEnv: "E2E_RECEPTION_PASSWORD",

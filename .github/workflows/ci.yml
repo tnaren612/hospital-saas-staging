@@ -78,7 +78,9 @@ jobs:
           NEXT_PUBLIC_HOSPITAL_SLUG: hospital-alpha
           HOSPITAL_HOST_MAP: '{"127.0.0.1":"hospital-alpha","localhost":"hospital-alpha"}'
       - name: Full credentialed Playwright suite
-        run: npm run test:e2e
+        run: |
+          npm run test:e2e:credentials
+          npm run test:e2e
         env:
           CI: "true"
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
@@ -98,6 +100,8 @@ jobs:
           E2E_PATIENT_PASSWORD: ${{ secrets.E2E_PATIENT_PASSWORD }}
           E2E_LAB_EMAIL: ${{ secrets.E2E_LAB_EMAIL }}
           E2E_LAB_PASSWORD: ${{ secrets.E2E_LAB_PASSWORD }}
+          E2E_RADIOLOGY_EMAIL: ${{ secrets.E2E_RADIOLOGY_EMAIL }}
+          E2E_RADIOLOGY_PASSWORD: ${{ secrets.E2E_RADIOLOGY_PASSWORD }}
           E2E_PHARMACY_EMAIL: ${{ secrets.E2E_PHARMACY_EMAIL }}
           E2E_PHARMACY_PASSWORD: ${{ secrets.E2E_PHARMACY_PASSWORD }}
           E2E_RECEPTION_EMAIL: ${{ secrets.E2E_RECEPTION_EMAIL }}

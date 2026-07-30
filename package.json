@@ -14,6 +14,7 @@
     "test:unit": "tsx --test tests/unit/**/*.test.ts",
     "test:integration": "tsx --test tests/integration/**/*.test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:credentials": "node scripts/validate-e2e-env.mjs",
     "seed:blog-covers": "node scripts/seed-blog-covers.mjs --reuse-gallery"
   },
   "dependencies": {

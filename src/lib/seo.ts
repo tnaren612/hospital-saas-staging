@@ -4,6 +4,16 @@ import type { HospitalConfig } from "@/lib/hospital/types";
 import { getTenantContext } from "@/lib/hospital/tenant";
 import { getHospitalConfig } from "@/lib/hospital/service";
 
+/** Safely embed JSON-LD inside an HTML script element. */
+export function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 function postalAddress(config: HospitalConfig) {
   return {
     "@type": "PostalAddress",
