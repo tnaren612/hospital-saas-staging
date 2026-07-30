@@ -21,6 +21,7 @@ export function PharmacyManager() {
   const [busy, setBusy] = useState(false);
   const [saleMedId, setSaleMedId] = useState("");
   const [saleQty, setSaleQty] = useState(1);
+  const [stockAddQty, setStockAddQty] = useState(1);
   const [patientName, setPatientName] = useState("Walk-in Patient");
 
   const load = useCallback(async () => {
@@ -75,6 +76,41 @@ export function PharmacyManager() {
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addStock = async () => {
+    const med = meds.find((m) => m.id === saleMedId);
+    if (!med || stockAddQty < 1) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/phase2/pharmacy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: med.id,
+          name: med.name,
+          generic_name: med.generic_name,
+          manufacturer: med.manufacturer,
+          batch_number: med.batch_number,
+          category: med.category,
+          purchase_price: med.purchase_price,
+          selling_price: med.selling_price,
+          stock_qty: med.stock_qty + stockAddQty,
+          reorder_level: med.reorder_level,
+          expiry_date: med.expiry_date,
+          unit: med.unit,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Stock update failed");
+      toast.success(`${med.name} stock updated to ${json.data.stock_qty}`);
+      setStockAddQty(1);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Stock update failed");
     } finally {
       setBusy(false);
     }
@@ -147,6 +183,21 @@ export function PharmacyManager() {
             <Button disabled={busy || !saleMedId} onClick={() => void sell()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
               Record sale
+            </Button>
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Add stock</Label>
+            <Input
+              type="number"
+              min={1}
+              className="mt-1"
+              value={stockAddQty}
+              onChange={(e) => setStockAddQty(Number(e.target.value) || 1)}
+            />
+          </div>
+          <div className="flex items-end sm:col-span-2">
+            <Button variant="outline" disabled={busy || !saleMedId} onClick={() => void addStock()}>
+              Add stock
             </Button>
           </div>
         </CardContent>
