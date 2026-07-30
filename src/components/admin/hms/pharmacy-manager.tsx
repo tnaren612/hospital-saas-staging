@@ -25,6 +25,7 @@ export function PharmacyManager() {
   const [stockAddQty, setStockAddQty] = useState(1);
   const [patientName, setPatientName] = useState("Walk-in Patient");
   const [actionError, setActionError] = useState("");
+  const [newSku, setNewSku] = useState({ name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,6 +129,33 @@ export function PharmacyManager() {
     }
   };
 
+  const createSku = async () => {
+    if (!newSku.name.trim() || newSku.stock_qty < 0 || newSku.selling_price < 0 || newSku.purchase_price < 0) {
+      setActionError("Enter a medicine name and valid non-negative prices and stock.");
+      return;
+    }
+    setBusy(true);
+    setActionError("");
+    try {
+      const res = await fetch("/api/phase2/pharmacy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newSku, category: "General", unit: "unit" }),
+      });
+      if (!res.ok) throw new Error("New SKU could not be created. Please check the details.");
+      const json = await res.json();
+      toast.success(`${json.data.name} added to pharmacy stock`);
+      setNewSku({ name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
+      await load();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "New SKU could not be created.";
+      setActionError(message);
+      toast.error(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -220,6 +248,20 @@ export function PharmacyManager() {
               Add stock
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="grid gap-3 p-5 sm:grid-cols-5">
+          <div className="sm:col-span-2">
+            <Label>New SKU / medicine name</Label>
+            <Input className="mt-1" value={newSku.name} onChange={(e) => setNewSku({ ...newSku, name: e.target.value })} placeholder="e.g. Azithromycin 500" />
+          </div>
+          <div><Label>Purchase price</Label><Input className="mt-1" type="number" min={0} value={newSku.purchase_price} onChange={(e) => setNewSku({ ...newSku, purchase_price: Number(e.target.value) || 0 })} /></div>
+          <div><Label>Selling price</Label><Input className="mt-1" type="number" min={0} value={newSku.selling_price} onChange={(e) => setNewSku({ ...newSku, selling_price: Number(e.target.value) || 0 })} /></div>
+          <div><Label>Opening stock</Label><Input className="mt-1" type="number" min={0} value={newSku.stock_qty} onChange={(e) => setNewSku({ ...newSku, stock_qty: Number(e.target.value) || 0 })} /></div>
+          <div><Label>Reorder level</Label><Input className="mt-1" type="number" min={0} value={newSku.reorder_level} onChange={(e) => setNewSku({ ...newSku, reorder_level: Number(e.target.value) || 0 })} /></div>
+          <div className="sm:col-span-5"><Button disabled={busy} onClick={() => void createSku()}>Add new SKU</Button></div>
         </CardContent>
       </Card>
 
