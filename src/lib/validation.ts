@@ -73,9 +73,10 @@ export const doctorUpdateSchema = z.object({
 
 export type DoctorUpdateFormValues = z.infer<typeof doctorUpdateSchema>;
 
+/** Login only validates presence; strength enforced on set/change password. */
 export const adminLoginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(1, "Password is required"),
   remember: z.boolean().optional(),
 });
 

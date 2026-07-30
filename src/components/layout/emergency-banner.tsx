@@ -1,14 +1,17 @@
 "use client";
 
 import { Phone, Ambulance, Siren } from "lucide-react";
-import { getHospital } from "@/lib/data";
 import { getTelUrl } from "@/lib/utils";
 import { useLocale } from "@/hooks/use-locale";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
+import { useCmsSite } from "@/hooks/use-cms-site";
 
 export function EmergencyBanner() {
-  const hospital = getHospital();
+  const { config } = useHospitalConfig();
+  const cms = useCmsSite();
   const { t } = useLocale();
-  const phone = hospital.emergencyPhone;
+  const phone = config.contact.emergency_phone;
+  const announcement = cms.announcement;
 
   return (
     <div
@@ -19,10 +22,14 @@ export function EmergencyBanner() {
       <div className="container mx-auto flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm sm:px-6 lg:px-8">
         <div className="flex items-center gap-2 font-semibold">
           <Siren className="h-4 w-4 animate-pulse-soft" aria-hidden />
-          <span className="hidden sm:inline">{t.emergency.title}</span>
+          <span className="hidden sm:inline">
+            {announcement?.title || t.emergency.title}
+          </span>
           <span className="sm:hidden">24×7 Emergency</span>
         </div>
-        <p className="hidden text-white/90 md:block">{t.emergency.subtitle}</p>
+        <p className="hidden text-white/90 md:block">
+          {announcement?.message || t.emergency.subtitle}
+        </p>
         <div className="flex items-center gap-3">
           <a
             href={getTelUrl(phone)}

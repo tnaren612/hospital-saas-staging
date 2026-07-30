@@ -102,7 +102,7 @@ export function GalleryContent() {
       <CmsPageBanner
         section="gallery"
         title="Hospital Gallery"
-        subtitle="A visual tour of our hospital spaces at Sri Srinivasa Hospital, Badvel."
+        subtitle="A visual tour of our hospital spaces and facilities."
       />
       <div className="container mx-auto px-4 pt-6 sm:px-6 lg:px-8">
         <Breadcrumb items={[{ label: "Gallery" }]} />

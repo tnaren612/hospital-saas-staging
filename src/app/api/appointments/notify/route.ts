@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       phone: data.phone,
       email: data.email,
       doctorName:
-        data.doctorName || "Dr. Varaprasad Venkata Sumanth",
+        data.doctorName || "Doctor",
       departmentName: data.departmentName || "Pulmonology",
       date: data.date,
       timeSlot: data.timeSlot,

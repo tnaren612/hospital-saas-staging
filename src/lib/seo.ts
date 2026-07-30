@@ -1,10 +1,24 @@
 import type { Metadata } from "next";
-import { SITE_URL } from "@/lib/data";
-import hospital from "@/data/hospital.json";
-import doctor from "@/data/doctor.json";
+import { buildDefaultHospitalConfig } from "@/lib/hospital/defaults";
+import type { HospitalConfig } from "@/lib/hospital/types";
+import { getTenantContext } from "@/lib/hospital/tenant";
+import { getHospitalConfig } from "@/lib/hospital/service";
 
-const defaultTitle = `${hospital.name} | Pulmonology & Respiratory Care, Badvel`;
-const defaultDescription = `${hospital.name} on Nellore Road, Badvel — specialist pulmonology, asthma, COPD, critical care by ${doctor.name}. Book appointments online. 24×7 emergency.`;
+function postalAddress(config: HospitalConfig) {
+  return {
+    "@type": "PostalAddress",
+    streetAddress: [
+      config.contact.address_line1,
+      config.contact.address_line2,
+    ]
+      .filter(Boolean)
+      .join(", "),
+    addressLocality: config.contact.city,
+    addressRegion: config.contact.state,
+    postalCode: config.contact.pincode,
+    addressCountry: config.contact.country,
+  };
+}
 
 export function createMetadata({
   title,
@@ -12,116 +26,113 @@ export function createMetadata({
   path = "",
   image = "/assets/images/hospital/og-image.svg",
   noIndex = false,
+  config = buildDefaultHospitalConfig(),
 }: {
   title?: string;
   description?: string;
   path?: string;
   image?: string;
   noIndex?: boolean;
+  config?: HospitalConfig;
 } = {}): Metadata {
-  const fullTitle = title ? `${title} | ${hospital.name}` : defaultTitle;
-  const desc = description || defaultDescription;
-  const url = `${SITE_URL}${path}`;
+  const name = config.branding.name;
+  const fullTitle = title
+    ? `${title} | ${name}`
+    : config.seo.meta_title || name;
+  const desc =
+    description ||
+    config.seo.meta_description ||
+    config.branding.tagline ||
+    name;
+  const siteUrl = (config.contact.website || "http://localhost:3000").replace(
+    /\/$/,
+    ""
+  );
+  const url = `${siteUrl}${path}`;
+  const socialImage = config.seo.og_image_url || image;
 
   return {
     title: fullTitle,
     description: desc,
-    metadataBase: new URL(SITE_URL),
+    metadataBase: new URL(siteUrl),
     alternates: { canonical: url },
-    robots: noIndex ? { index: false, follow: false } : { index: true, follow: true },
+    robots: noIndex
+      ? { index: false, follow: false }
+      : { index: true, follow: true },
     openGraph: {
       type: "website",
-      locale: "en_IN",
+      locale: config.localization.language,
       url,
-      siteName: hospital.name,
+      siteName: name,
       title: fullTitle,
       description: desc,
-      images: [{ url: image, width: 1200, height: 630, alt: hospital.name }],
+      images: [{ url: socialImage, width: 1200, height: 630, alt: name }],
     },
     twitter: {
       card: "summary_large_image",
       title: fullTitle,
       description: desc,
-      images: [image],
+      images: [socialImage],
     },
-    keywords: [
-      "Sri Srinivasa Hospital",
-      "Badvel hospital",
-      "Pulmonologist Badvel",
-      "Dr Varaprasad Venkata Sumanth",
-      "Asthma treatment",
-      "COPD care",
-      "Lung specialist Andhra Pradesh",
-      "Respiratory medicine",
-      "Critical care Badvel",
-    ],
+    keywords: config.seo.keywords
+      .split(",")
+      .map((keyword) => keyword.trim())
+      .filter(Boolean),
   };
 }
 
-export function hospitalJsonLd() {
+/** Resolve tenant-aware metadata for public App Router pages. */
+export async function createTenantMetadata(options: {
+  title?: string;
+  description?: string;
+  path?: string;
+  image?: string;
+  noIndex?: boolean;
+} = {}): Promise<Metadata> {
+  const tenant = await getTenantContext();
+  const config = await getHospitalConfig({ slug: tenant.slug });
+  return createMetadata({ ...options, config });
+}
+
+export function hospitalJsonLd(config: HospitalConfig) {
   return {
     "@context": "https://schema.org",
     "@type": "Hospital",
-    name: hospital.name,
-    description: defaultDescription,
-    url: SITE_URL,
-    telephone: hospital.phones.map((p) => `+91${p}`),
-    email: hospital.email,
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: `${hospital.address.line1}, ${hospital.address.line2}`,
-      addressLocality: hospital.address.city,
-      addressRegion: hospital.address.state,
-      postalCode: hospital.address.pincode,
-      addressCountry: "IN",
-    },
-    geo: {
-      "@type": "GeoCoordinates",
-      latitude: hospital.geo.lat,
-      longitude: hospital.geo.lng,
-    },
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: [
-          "Monday",
-          "Tuesday",
-          "Wednesday",
-          "Thursday",
-          "Friday",
-          "Saturday",
-        ],
-        opens: "09:00",
-        closes: "20:00",
-      },
-    ],
-    medicalSpecialty: [
-      "Pulmonary",
-      "Critical Care",
-      "Emergency",
-    ],
+    name: config.branding.name,
+    description: config.seo.meta_description || config.branding.tagline,
+    url: config.contact.website,
+    logo: config.branding.logo_url,
+    image: config.seo.og_image_url || config.branding.banner_url,
+    telephone: config.contact.phones,
+    email: config.contact.email,
+    address: postalAddress(config),
+    geo:
+      config.contact.lat !== null && config.contact.lng !== null
+        ? {
+            "@type": "GeoCoordinates",
+            latitude: config.contact.lat,
+            longitude: config.contact.lng,
+          }
+        : undefined,
   };
 }
 
-export function doctorJsonLd() {
+export function doctorJsonLd(
+  config: HospitalConfig,
+  doctor: { name: string; specializations?: string[] }
+) {
   return {
     "@context": "https://schema.org",
     "@type": "Physician",
     name: doctor.name,
-    medicalSpecialty: doctor.specializations,
+    medicalSpecialty: doctor.specializations || [],
     hospitalAffiliation: {
       "@type": "Hospital",
-      name: hospital.name,
+      name: config.branding.name,
     },
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: `${hospital.address.line1}, ${hospital.address.line2}`,
-      addressLocality: hospital.address.city,
-      addressRegion: hospital.address.state,
-      postalCode: hospital.address.pincode,
-      addressCountry: "IN",
-    },
-    telephone: `+91${hospital.phones[0]}`,
+    address: postalAddress(config),
+    telephone:
+      config.contact.phones[0] || config.contact.emergency_phone || undefined,
   };
 }
 
@@ -129,49 +140,37 @@ export function faqJsonLd(faqs: { question: string; answer: string }[]) {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: faqs.map((f) => ({
+    mainEntity: faqs.map((faq) => ({
       "@type": "Question",
-      name: f.question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: f.answer,
-      },
+      name: faq.question,
+      acceptedAnswer: { "@type": "Answer", text: faq.answer },
     })),
   };
 }
 
-export function medicalBusinessJsonLd() {
+export function medicalBusinessJsonLd(config: HospitalConfig) {
   return {
     "@context": "https://schema.org",
     "@type": "MedicalBusiness",
-    name: hospital.name,
-    description: defaultDescription,
-    url: SITE_URL,
-    telephone: hospital.phones.map((p) => `+91${p}`),
-    email: hospital.email,
-    priceRange: "$$",
-    address: {
-      "@type": "PostalAddress",
-      streetAddress: `${hospital.address.line1}, ${hospital.address.line2}`,
-      addressLocality: hospital.address.city,
-      addressRegion: hospital.address.state,
-      postalCode: hospital.address.pincode,
-      addressCountry: "IN",
-    },
-    geo: {
-      "@type": "GeoCoordinates",
-      latitude: hospital.geo.lat,
-      longitude: hospital.geo.lng,
-    },
-    areaServed: {
-      "@type": "City",
-      name: hospital.address.city,
-    },
-    medicalSpecialty: [
-      "Pulmonary",
-      "Critical Care Medicine",
-      "Emergency Medicine",
-      "Sleep Medicine",
-    ],
+    name: config.branding.name,
+    description: config.seo.meta_description || config.branding.tagline,
+    url: config.contact.website,
+    telephone: config.contact.phones,
+    email: config.contact.email,
+    priceRange: config.localization.currency_symbol
+      ? `${config.localization.currency_symbol}${config.localization.currency_symbol}`
+      : undefined,
+    address: postalAddress(config),
+    geo:
+      config.contact.lat !== null && config.contact.lng !== null
+        ? {
+            "@type": "GeoCoordinates",
+            latitude: config.contact.lat,
+            longitude: config.contact.lng,
+          }
+        : undefined,
+    areaServed: config.contact.city
+      ? { "@type": "City", name: config.contact.city }
+      : undefined,
   };
 }

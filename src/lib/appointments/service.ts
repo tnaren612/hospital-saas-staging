@@ -110,7 +110,7 @@ export async function checkSlotBooked(
   return Boolean(data);
 }
 
-/** Load booked slot keys for a date: "YYYY-MM-DD|10:00 AM" */
+/** Load booked slot keys for a date: "YYYY-MM-DD|10:00 AM" — via cached slots API */
 export async function getBookedSlotKeysForDate(
   date: string,
   doctorId = "dr-varaprasad"
@@ -118,6 +118,19 @@ export async function getBookedSlotKeysForDate(
   if (!isSupabaseBackendEnabled()) {
     const { getBookedSlots } = await import("@/lib/storage");
     return getBookedSlots().filter((k) => k.startsWith(`${date}|`));
+  }
+
+  try {
+    const qs = new URLSearchParams({ date, doctorId });
+    const res = await fetch(`/api/appointments/slots?${qs}`, {
+      // short CDN/browser cache
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { booked?: string[] };
+      return (json.booked || []).map((t) => `${date}|${t}`);
+    }
+  } catch {
+    /* fall through */
   }
 
   const supabase = createClientOrNull();

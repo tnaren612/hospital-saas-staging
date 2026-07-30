@@ -22,6 +22,7 @@ import {
 import { sendPaymentConfirmationEmail } from "@/lib/notifications/email";
 import { notifyPaymentSuccess } from "@/lib/notifications/service";
 import { buildPaymentSms } from "@/lib/notifications/sms";
+import { getHospitalConfig } from "@/lib/hospital/service";
 
 function serviceClient() {
   const url = getSupabaseUrl();
@@ -100,6 +101,7 @@ async function loadSettings(
     .maybeSingle();
 
   if (!data) {
+    const config = await getHospitalConfig();
     return {
       id: "default",
       online_payment_enabled: false,
@@ -108,10 +110,16 @@ async function loadSettings(
       stripe_enabled: false,
       currency: "INR",
       tax_percentage: 0,
-      hospital_name: "Sri Srinivasa Hospital",
-      hospital_address: "Nellore Road, Badvel, Andhra Pradesh",
-      invoice_prefix: "SSH-INV",
-      gstin: "",
+      hospital_name: config.branding.name,
+      hospital_address: [
+        config.contact.address_line1,
+        config.contact.address_line2,
+        config.contact.city,
+        config.contact.state,
+        config.contact.pincode,
+      ].filter(Boolean).join(", "),
+      invoice_prefix: config.prefixes.invoice,
+      gstin: config.legal.gst_number,
       terms:
         "Payment once made is subject to hospital refund policy. For queries contact reception.",
       razorpay_key_id: "",
@@ -120,6 +128,7 @@ async function loadSettings(
   }
 
   const row = data as Record<string, unknown>;
+  const config = await getHospitalConfig();
   return {
     id: String(row.id),
     online_payment_enabled: Boolean(row.online_payment_enabled),
@@ -128,9 +137,16 @@ async function loadSettings(
     stripe_enabled: Boolean(row.stripe_enabled),
     currency: String(row.currency || "INR"),
     tax_percentage: Number(row.tax_percentage) || 0,
-    hospital_name: String(row.hospital_name || "Sri Srinivasa Hospital"),
+    hospital_name: String(row.hospital_name || config.branding.name),
     hospital_address: String(
-      row.hospital_address || "Nellore Road, Badvel, Andhra Pradesh"
+      row.hospital_address ||
+        [
+          config.contact.address_line1,
+          config.contact.address_line2,
+          config.contact.city,
+          config.contact.state,
+          config.contact.pincode,
+        ].filter(Boolean).join(", ")
     ),
     invoice_prefix: String(row.invoice_prefix || "SSH-INV"),
     gstin: String(row.gstin || ""),

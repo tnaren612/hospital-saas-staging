@@ -20,7 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/admin/ui/skeleton";
 import { formatDate } from "@/lib/utils";
 import type { PatientDashboardData } from "@/lib/patient/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import {
+  getDemoDashboard,
+  getPatientDashboard,
+} from "@/lib/patient/service";
 import { setPatient } from "@/lib/storage";
 
 export function PatientDashboard() {
@@ -31,20 +34,13 @@ export function PatientDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/patient/dashboard", { cache: "no-store" });
-      const json = await res.json();
-      if (res.ok && json.data) {
-        setData(json.data as PatientDashboardData);
-        if (json.data.mode === "unauthenticated") {
+      const dashboard = await getPatientDashboard();
+      setData(dashboard);
+      if (dashboard.mode === "unauthenticated") {
           // try demo local
           const demo = getDemoDashboard();
           if (demo.patient) setData(demo);
           else router.replace("/patient/login");
-        }
-      } else {
-        const demo = getDemoDashboard();
-        if (demo.patient) setData(demo);
-        else router.replace("/patient/login");
       }
     } catch {
       const demo = getDemoDashboard();
@@ -59,7 +55,7 @@ export function PatientDashboard() {
     void load();
   }, [load]);
 
-  if (loading || !data?.patient) {
+  if (loading) {
     return (
       <PatientShell>
         <div className="space-y-4">
@@ -70,6 +66,37 @@ export function PatientDashboard() {
             <Skeleton className="h-28 rounded-2xl" />
           </div>
         </div>
+      </PatientShell>
+    );
+  }
+
+  if (!data?.patient) {
+    return (
+      <PatientShell>
+        <Card>
+          <CardContent className="space-y-4 p-6 text-center">
+            <h1 className="text-xl font-semibold">
+              Patient profile unavailable
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Your session is active, but the patient profile could not be
+              loaded. Sign in again or contact the hospital if this continues.
+            </p>
+            <div className="flex justify-center gap-2">
+              <Button variant="outline" onClick={() => void load()}>
+                Try again
+              </Button>
+              <Button
+                onClick={() => {
+                  setPatient(null);
+                  router.replace("/patient/login");
+                }}
+              >
+                Sign in again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </PatientShell>
     );
   }

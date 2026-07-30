@@ -10,7 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import type { PortalPatient } from "@/lib/patient/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import {
+  getDemoDashboard,
+  getPatientDashboard,
+  updatePatientProfile,
+} from "@/lib/patient/service";
+import { createClientOrNull } from "@/lib/supabase/client";
 
 export function PatientProfilePage() {
   const [patient, setPatient] = useState<PortalPatient | null>(null);
@@ -21,16 +26,13 @@ export function PatientProfilePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/patient/profile", { cache: "no-store" });
-      const json = await res.json();
-      if (res.ok) {
-        setPatient(json.data);
-        setMode(json.mode || "supabase");
-      } else {
-        const demo = getDemoDashboard();
-        setPatient(demo.patient);
-        setMode(demo.mode);
-      }
+      const data = await getPatientDashboard(createClientOrNull() || undefined);
+      setPatient(data.patient);
+      setMode(data.mode);
+    } catch {
+      const demo = getDemoDashboard();
+      setPatient(demo.patient);
+      setMode(demo.mode);
     } finally {
       setLoading(false);
     }
@@ -48,27 +50,24 @@ export function PatientProfilePage() {
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/patient/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          first_name: patient.first_name,
-          last_name: patient.last_name,
-          phone: patient.phone || "",
-          email: patient.email || "",
-          gender: patient.gender,
-          date_of_birth: patient.date_of_birth,
-          blood_group: patient.blood_group,
-          address: patient.address,
-          emergency_contact: patient.emergency_contact,
-          insurance_provider: patient.insurance_provider,
-          insurance_number: patient.insurance_number,
-          profile_photo: patient.profile_photo,
-        }),
+      const result = await updatePatientProfile({
+        first_name: patient.first_name,
+        last_name: patient.last_name,
+        phone: patient.phone || "",
+        email: patient.email || "",
+        gender: patient.gender,
+        date_of_birth: patient.date_of_birth,
+        blood_group: patient.blood_group,
+        address: patient.address,
+        emergency_contact: patient.emergency_contact,
+        insurance_provider: patient.insurance_provider,
+        insurance_number: patient.insurance_number,
+        profile_photo: patient.profile_photo,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
-      setPatient(json.data);
+      if (!result.ok || !result.patient) {
+        throw new Error(result.error || "Save failed");
+      }
+      setPatient(result.patient);
       toast.success("Profile updated");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");

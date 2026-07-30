@@ -14,11 +14,10 @@ import { SITE_URL } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: { slug: string } };
+type PageProps = { params: Promise<{ slug: string }> };
 
-export async function generateMetadata({
-  params,
-}: PageProps): Promise<Metadata> {
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
   const pkg = await getPackageBySlug(params.slug);
   if (!pkg) {
     return createMetadata({
@@ -41,7 +40,8 @@ export async function generateMetadata({
   });
 }
 
-export default async function HealthPackageDetailPage({ params }: PageProps) {
+export default async function HealthPackageDetailPage(props: PageProps) {
+  const params = await props.params;
   const pkg = await getPackageBySlug(params.slug);
   if (!pkg) notFound();
 
@@ -60,7 +60,7 @@ export default async function HealthPackageDetailPage({ params }: PageProps) {
     {
       "@context": "https://schema.org",
       "@type": "MedicalBusiness",
-      name: "Sri Srinivasa Hospital",
+      name: process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital",
       url: site,
       medicalSpecialty: pkg.package_type,
     },

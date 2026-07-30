@@ -32,7 +32,7 @@ export function buildInvoicePdf(input: {
 }): Buffer {
   const { invoice, settings, payment } = input;
   const lines: string[] = [
-    settings.hospital_name || "Sri Srinivasa Hospital",
+    settings.hospital_name || "Hospital",
     settings.hospital_address || "",
     settings.gstin ? `GSTIN: ${settings.gstin}` : "",
     "",
@@ -65,7 +65,7 @@ export function buildInvoicePdf(input: {
     `Tax: ${money(invoice.tax, invoice.currency)}`,
     `Grand Total: ${money(invoice.grand_total, invoice.currency)}`,
     "",
-    settings.terms || "Thank you for choosing Sri Srinivasa Hospital.",
+    settings.terms || "Thank you for choosing our hospital.",
     input.logoNote || "Computer-generated invoice.",
   ].filter((l) => l !== undefined);
 

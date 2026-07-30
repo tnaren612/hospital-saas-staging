@@ -13,11 +13,10 @@ import { faqJsonLd } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: { slug: string } };
+type PageProps = { params: Promise<{ slug: string }> };
 
-export async function generateMetadata({
-  params,
-}: PageProps): Promise<Metadata> {
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
   const doctor = await getDoctorBySlug(params.slug);
   if (!doctor) {
     return createMetadata({
@@ -32,13 +31,14 @@ export async function generateMetadata({
     description:
       doctor.seo_description ||
       doctor.biography?.slice(0, 160) ||
-      `${doctor.name} — ${doctor.title} at Sri Srinivasa Hospital, Badvel.`,
+      `${doctor.name} — ${doctor.title}.`,
     path: `/doctors/${doctor.slug || doctor.id}`,
     image: doctor.photo_url || "/assets/images/hospital/og-image.svg",
   });
 }
 
-export default async function DoctorSlugPage({ params }: PageProps) {
+export default async function DoctorSlugPage(props: PageProps) {
+  const params = await props.params;
   const doctor = await getDoctorBySlug(params.slug);
   if (!doctor) notFound();
 

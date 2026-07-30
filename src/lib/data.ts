@@ -30,8 +30,20 @@ import type {
 } from "@/types";
 import { getStoredDoctor } from "@/lib/storage";
 
+/**
+ * Synchronous hospital info for SSR/static paths.
+ * Prefer `useHospitalConfig()` / `getHospitalConfig()` for live multi-tenant branding.
+ * Defaults merge JSON seed + NEXT_PUBLIC_* env (no code change for white-label).
+ */
 export function getHospital(): HospitalInfo {
-  return hospitalJson as HospitalInfo;
+  const base = hospitalJson as HospitalInfo;
+  const name = process.env.NEXT_PUBLIC_HOSPITAL_NAME || base.name;
+  const email = process.env.NEXT_PUBLIC_HOSPITAL_EMAIL || base.email;
+  return {
+    ...base,
+    name,
+    email,
+  };
 }
 
 function isUsablePhoto(src?: string | null): src is string {
@@ -143,7 +155,7 @@ export function getImagePaths() {
 }
 
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || "https://srisrinivasahospital.com";
+  process.env.NEXT_PUBLIC_SITE_URL || "https://example-hospital.com";
 
 export const WHATSAPP_MESSAGE =
   "Hello Doctor,\n\nI would like to book an appointment.";

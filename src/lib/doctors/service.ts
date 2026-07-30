@@ -10,7 +10,6 @@ import {
   hasSupabaseConfig,
   isSupabaseBackendEnabled,
 } from "@/lib/supabase/env";
-import { getDoctor } from "@/lib/data";
 import type { HospitalDoctor, DoctorFaq } from "@/lib/hms/types";
 
 export type PublicDoctor = HospitalDoctor & {
@@ -96,56 +95,39 @@ function mapRow(row: Record<string, unknown>): PublicDoctor {
 }
 
 function fallbackDoctor(): PublicDoctor {
-  const d = getDoctor();
-  // Same gallery asset as Home DoctorPreview (doctor.json image)
-  // /images/doctors/lead-specialist.png
-  const profilePhoto =
-    d.image ||
-    d.gallery?.[0] ||
-    "/images/doctors/lead-specialist.png";
+  const name = process.env.NEXT_PUBLIC_DEFAULT_DOCTOR_NAME || "Doctor";
+  const title = process.env.NEXT_PUBLIC_DEFAULT_DOCTOR_TITLE || "Consultant";
   return {
-    id: d.id,
-    slug: "dr-varaprasad-venkata-sumanth",
-    name: d.name || "Dr. Varaprasad Venkata Sumanth",
-    title:
-      d.title || "Consultant Pulmonologist & Critical Care Specialist",
+    id: "configured-doctor",
+    slug: "doctor",
+    name,
+    title,
     department_id: null,
-    department_name: "Pulmonology",
-    photo_url: profilePhoto,
-    qualifications: d.qualifications || [],
-    degrees: d.qualifications || [],
-    certifications: d.certificates || [],
-    specializations: d.specializations || [],
-    experience_years: 15,
+    department_name: null,
+    photo_url: process.env.NEXT_PUBLIC_DEFAULT_DOCTOR_IMAGE || null,
+    qualifications: [],
+    degrees: [],
+    certifications: [],
+    specializations: [],
+    experience_years: 0,
     experience_notes: "",
-    experience_timeline: d.experience || [],
-    awards: d.awards || [],
+    experience_timeline: [],
+    awards: [],
     memberships: [],
-    languages: d.languages || [],
-    treatments: [
-      "Asthma management",
-      "COPD care",
-      "Sleep apnea evaluation",
-      "Critical care",
-    ],
-    services: ["OPD consultation", "Video consultation"],
-    faqs: [
-      {
-        question: "When should I see a pulmonologist?",
-        answer:
-          "If you have persistent cough, breathlessness, wheezing, or known asthma/COPD needing specialist care.",
-      },
-    ],
-    consultation_fee: d.consultationFee || 500,
-    video_consultation_fee: d.videoConsultationFee || 400,
-    available_days: ["mon", "tue", "wed", "thu", "fri", "sat"],
+    languages: [],
+    treatments: [],
+    services: [],
+    faqs: [],
+    consultation_fee: 0,
+    video_consultation_fee: null,
+    available_days: [],
     time_slots: [],
     consultation_timings: "Mon–Sat · 9:00 AM – 8:00 PM",
-    biography: d.bio,
+    biography: "",
     video_intro_url: null,
-    is_featured: true,
-    seo_title: `${d.name} | Pulmonologist, Badvel`,
-    seo_description: d.bio.slice(0, 160),
+    is_featured: false,
+    seo_title: `${name} | ${process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital"}`,
+    seo_description: "",
     status: "active",
     sort_order: 0,
   };
@@ -158,15 +140,11 @@ export async function listPublicDepartments(): Promise<
   { id: string; name: string; slug: string }[]
 > {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
-    return [
-      { id: "dept-pulmonology", name: "Pulmonology", slug: "pulmonology" },
-    ];
+    return [];
   }
   const supabase = publicClient();
   if (!supabase) {
-    return [
-      { id: "dept-pulmonology", name: "Pulmonology", slug: "pulmonology" },
-    ];
+    return [];
   }
   const { data, error } = await supabase
     .from("departments")
@@ -174,9 +152,7 @@ export async function listPublicDepartments(): Promise<
     .eq("status", "active")
     .order("name");
   if (error || !data?.length) {
-    return [
-      { id: "dept-pulmonology", name: "Pulmonology", slug: "pulmonology" },
-    ];
+    return [];
   }
   return data.map((r) => ({
     id: String(r.id),
@@ -352,7 +328,7 @@ export function physicianJsonLd(doctor: PublicDoctor, siteUrl: string) {
     knowsLanguage: doctor.languages,
     hospitalAffiliation: {
       "@type": "Hospital",
-      name: "Sri Srinivasa Hospital",
+      name: process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital",
     },
     priceRange:
       doctor.consultation_fee > 0

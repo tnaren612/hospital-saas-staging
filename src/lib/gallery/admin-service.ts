@@ -57,7 +57,7 @@ export async function listAdminGalleryImages(): Promise<AdminGalleryImage[]> {
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data || []).map((r) => mapAdmin(r as Record<string, unknown>));
+  return (data || []).map((r: Record<string, unknown>) => mapAdmin(r));
 }
 
 function sanitizeFileName(name: string): string {

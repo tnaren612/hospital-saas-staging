@@ -29,9 +29,11 @@ import type { Appointment, AppointmentStatus } from "@/types";
 const FILTERS: Array<"all" | AppointmentStatus> = [
   "all",
   "confirmed",
+  "checked_in",
   "upcoming",
   "pending",
   "completed",
+  "no_show",
   "cancelled",
 ];
 
@@ -39,6 +41,8 @@ export function AdminAppointments() {
   const [items, setItems] = useState<Appointment[]>([]);
   const [filter, setFilter] = useState<"all" | AppointmentStatus>("all");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
+  const [queueOnly, setQueueOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [mode, setMode] = useState("");
@@ -50,22 +54,40 @@ export function AdminAppointments() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filter !== "all") params.set("status", filter);
-      if (search.trim()) params.set("q", search.trim());
-      const res = await fetch(`/api/admin/appointments?${params.toString()}`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load");
-      setItems(json.data || []);
-      setMode(json.mode || "");
+      if (queueOnly) {
+        const params = new URLSearchParams();
+        params.set(
+          "date",
+          dateFilter || new Date().toISOString().slice(0, 10)
+        );
+        const res = await fetch(
+          `/api/admin/appointments/queue?${params.toString()}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load queue");
+        setItems(json.data || []);
+        setMode("queue");
+      } else {
+        const params = new URLSearchParams();
+        if (filter !== "all") params.set("status", filter);
+        if (search.trim()) params.set("q", search.trim());
+        if (dateFilter) params.set("date", dateFilter);
+        const res = await fetch(
+          `/api/admin/appointments?${params.toString()}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to load");
+        setItems(json.data || []);
+        setMode(json.mode || "");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
-  }, [filter, search]);
+  }, [filter, search, dateFilter, queueOnly]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 250);
@@ -83,7 +105,11 @@ export function AdminAppointments() {
       .map(([date, count]) => ({ date: date.slice(5), count }));
   }, [items]);
 
-  const setStatus = async (id: string, status: AppointmentStatus) => {
+  const setStatus = async (
+    id: string,
+    status: AppointmentStatus,
+    extra?: Record<string, unknown>
+  ) => {
     if (
       status === "cancelled" &&
       !confirm("Cancel this appointment? The time slot will become free.")
@@ -95,14 +121,33 @@ export function AdminAppointments() {
       const res = await fetch(`/api/admin/appointments/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...extra }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Update failed");
+      if (!res.ok) throw new Error(json.message || json.error || "Update failed");
       toast.success(`Marked as ${status}`);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const checkIn = async (id: string) => {
+    setUpdatingId(id);
+    try {
+      const res = await fetch(`/api/admin/appointments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ check_in: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Check-in failed");
+      toast.success("Patient checked in");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Check-in failed");
     } finally {
       setUpdatingId(null);
     }
@@ -147,51 +192,81 @@ export function AdminAppointments() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Appointments</h1>
           <p className="text-sm text-muted-foreground">
-            Search, filter, cancel, reschedule, and update status
+            Search, filter, cancel, reschedule, check-in, queue tokens
             {mode ? ` · ${mode}` : ""}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={queueOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setQueueOnly((v) => !v);
+              if (!dateFilter) {
+                setDateFilter(new Date().toISOString().slice(0, 10));
+              }
+            }}
+          >
+            Today&apos;s queue
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-10"
-            placeholder="Search name, phone, email, doctor…"
+            placeholder="Search name, phone, email, doctor, token…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search appointments"
+            disabled={queueOnly}
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition ${
-                filter === f
-                  ? "bg-primary-600 text-white"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div>
+          <Label htmlFor="appt-date" className="mb-1 block text-xs">
+            Date
+          </Label>
+          <Input
+            id="appt-date"
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="w-auto"
+          />
         </div>
+        {!queueOnly && (
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                  filter === f
+                    ? "bg-primary-600 text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {f.replace("_", " ")}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <Card>
@@ -224,6 +299,7 @@ export function AdminAppointments() {
             <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                 <tr>
+                  <th className="px-4 py-3">Token</th>
                   <th className="px-4 py-3">Patient</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">Doctor / Dept</th>
@@ -237,7 +313,7 @@ export function AdminAppointments() {
                 {loading && items.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-10 text-center text-muted-foreground"
                     >
                       <Loader2 className="mx-auto h-5 w-5 animate-spin" />
@@ -246,7 +322,7 @@ export function AdminAppointments() {
                 ) : items.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-10 text-center text-muted-foreground"
                     >
                       No appointments match your filters.
@@ -255,6 +331,15 @@ export function AdminAppointments() {
                 ) : (
                   items.map((a) => (
                     <tr key={a.id} className="border-t border-border">
+                      <td className="px-4 py-3">
+                        {a.queueToken != null ? (
+                          <span className="inline-flex h-8 min-w-[2rem] items-center justify-center rounded-lg bg-primary-50 px-2 text-sm font-bold text-primary-800 dark:bg-primary-950 dark:text-primary-200">
+                            #{a.queueToken}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-medium">
                         {a.patientName}
                         {a.bookingRef ? (
@@ -289,14 +374,14 @@ export function AdminAppointments() {
                       <td className="px-4 py-3">
                         <Badge
                           variant={
-                            a.status === "completed"
+                            a.status === "completed" || a.status === "checked_in"
                               ? "success"
-                              : a.status === "cancelled"
+                              : a.status === "cancelled" || a.status === "no_show"
                                 ? "danger"
                                 : "teal"
                           }
                         >
-                          {a.status}
+                          {a.status.replace("_", " ")}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
@@ -305,7 +390,23 @@ export function AdminAppointments() {
                             size="sm"
                             variant="ghost"
                             disabled={
-                              updatingId === a.id || a.status === "cancelled"
+                              updatingId === a.id ||
+                              a.status === "cancelled" ||
+                              a.status === "completed" ||
+                              a.status === "no_show" ||
+                              a.status === "checked_in"
+                            }
+                            onClick={() => void checkIn(a.id)}
+                          >
+                            Check-in
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={
+                              updatingId === a.id ||
+                              a.status === "cancelled" ||
+                              a.status === "completed"
                             }
                             onClick={() => openReschedule(a)}
                           >
@@ -327,6 +428,18 @@ export function AdminAppointments() {
                             onClick={() => void setStatus(a.id, "completed")}
                           >
                             Complete
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={
+                              updatingId === a.id ||
+                              a.status === "cancelled" ||
+                              a.status === "completed"
+                            }
+                            onClick={() => void setStatus(a.id, "no_show")}
+                          >
+                            No-show
                           </Button>
                           <Button
                             size="sm"

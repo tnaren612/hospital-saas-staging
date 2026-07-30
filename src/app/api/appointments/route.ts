@@ -1,7 +1,7 @@
 /**
  * Appointments API (Phase 1)
  * POST /api/appointments — create booking + optional email
- * GET  /api/appointments — list (optional ?phone=)
+ * GET  /api/appointments — public schedule only OR authenticated PHI
  */
 
 import { NextResponse } from "next/server";
@@ -10,7 +10,10 @@ import {
   hasSupabaseConfig,
   isSupabaseBackendEnabled,
 } from "@/lib/supabase/env";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from "@/lib/supabase/server";
 import { sanitizeText, stripHtml } from "@/lib/utils";
 import type { TimePeriod } from "@/types";
 import slotsJson from "@/data/slots.json";
@@ -18,6 +21,10 @@ import doctorJson from "@/data/doctor.json";
 import hospitalJson from "@/data/hospital.json";
 import { sendBookingConfirmations } from "@/lib/notifications/booking-confirm";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { nextQueueToken } from "@/lib/appointments/validation";
+import { getTenantContext, withHospitalId } from "@/lib/hospital/tenant";
+import { getAdminSession } from "@/lib/auth/admin";
+import { isHospitalStaff } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +47,11 @@ function makeBookingRef(): string {
   return `SSH-${Date.now().toString().slice(-6)}-${n}`;
 }
 
+/**
+ * C-02: Public GET never returns PHI.
+ * - ?date= → schedule fields only (time_slot, doctor_id, status) + hospital filter
+ * - ?phone= → requires staff session OR patient session whose phone matches
+ */
 export async function GET(request: Request) {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
     return NextResponse.json(
@@ -50,9 +62,10 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const phone = searchParams.get("phone");
+    const phone = searchParams.get("phone")?.trim() || null;
     const date = searchParams.get("date");
     const doctorId = searchParams.get("doctorId") || "dr-varaprasad";
+    const tenant = await getTenantContext();
 
     // Privacy: never dump full appointment list without a filter
     if (!phone && !date) {
@@ -64,37 +77,139 @@ export async function GET(request: Request) {
 
     const supabase = createServiceRoleClient();
 
-    // For public date checks, return only schedule fields
+    // Public date checks — schedule fields only (no PHI)
     if (date && !phone) {
-      const { data, error } = await supabase
+      let query = supabase
         .from("appointments")
         .select("time_slot, doctor_id, status")
         .eq("date", date)
         .eq("doctor_id", doctorId)
         .neq("status", "cancelled");
+      if (tenant.hospitalId) {
+        query = query.eq("hospital_id", tenant.hospitalId);
+      }
+      const { data, error } = await query;
       if (error) {
+        // hospital_id column may be missing pre-027
+        if (/hospital_id|column/i.test(error.message)) {
+          const retry = await supabase
+            .from("appointments")
+            .select("time_slot, doctor_id, status")
+            .eq("date", date)
+            .eq("doctor_id", doctorId)
+            .neq("status", "cancelled");
+          if (retry.error) {
+            return NextResponse.json(
+              { error: retry.error.message },
+              { status: 400 }
+            );
+          }
+          return NextResponse.json({
+            data: retry.data,
+            mode: "supabase",
+            scope: "schedule",
+          });
+        }
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       return NextResponse.json({ data, mode: "supabase", scope: "schedule" });
     }
 
-    let query = supabase
-      .from("appointments")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
+    // Phone lookup returns PHI — require authentication (C-02)
+    if (phone) {
+      const staff = await getAdminSession();
+      let authorized = Boolean(staff && isHospitalStaff(staff.profile.role));
 
-    if (phone) query = query.eq("phone", phone);
-    if (date) {
-      query = query.eq("date", date).eq("doctor_id", doctorId);
+      if (!authorized) {
+        try {
+          const userClient = await createServerSupabaseClient();
+          const {
+            data: { user },
+          } = await userClient.auth.getUser();
+          if (user) {
+            const { data: patient } = await userClient
+              .from("patients")
+              .select("phone")
+              .eq("user_id", user.id)
+              .maybeSingle();
+            const patientPhone = String(patient?.phone || "")
+              .replace(/\D/g, "")
+              .slice(-10);
+            const queryPhone = phone.replace(/\D/g, "").slice(-10);
+            if (patientPhone && patientPhone === queryPhone) {
+              authorized = true;
+            }
+          }
+        } catch {
+          authorized = false;
+        }
+      }
+
+      if (!authorized) {
+        return NextResponse.json(
+          {
+            error:
+              "Authentication required to look up appointments by phone",
+            code: "AUTH_REQUIRED",
+          },
+          { status: 401 }
+        );
+      }
+
+      let query = supabase
+        .from("appointments")
+        .select(
+          "id, patient_name, phone, email, date, time_slot, doctor_id, doctor_name, status, booking_ref, queue_token, type, period, created_at, hospital_id"
+        )
+        .eq("phone", phone)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (tenant.hospitalId && staff) {
+        query = query.eq("hospital_id", tenant.hospitalId);
+      }
+      if (date) {
+        query = query.eq("date", date);
+        if (doctorId) query = query.eq("doctor_id", doctorId);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        if (/hospital_id|column/i.test(error.message)) {
+          const retry = await supabase
+            .from("appointments")
+            .select(
+              "id, patient_name, phone, email, date, time_slot, doctor_id, doctor_name, status, booking_ref, type, period, created_at"
+            )
+            .eq("phone", phone)
+            .order("created_at", { ascending: false })
+            .limit(50);
+          if (retry.error) {
+            return NextResponse.json(
+              { error: retry.error.message },
+              { status: 400 }
+            );
+          }
+          return NextResponse.json({
+            data: retry.data,
+            mode: "supabase",
+            scope: "authenticated",
+          });
+        }
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        data,
+        mode: "supabase",
+        scope: "authenticated",
+      });
     }
 
-    const { data, error } = await query;
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ data, mode: "supabase" });
+    return NextResponse.json(
+      { error: "phone or date query is required" },
+      { status: 400 }
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -143,16 +258,20 @@ export async function POST(request: Request) {
     const booking_ref = makeBookingRef();
 
     const supabase = createServiceRoleClient();
+    const tenant = await getTenantContext();
 
     // Duplicate / leave guard (application level)
-    const { data: existing } = await supabase
+    let existingQ = supabase
       .from("appointments")
       .select("id")
       .eq("doctor_id", data.doctorId)
       .eq("date", data.date)
       .eq("time_slot", data.timeSlot)
-      .neq("status", "cancelled")
-      .maybeSingle();
+      .not("status", "in", '("cancelled","no_show")');
+    if (tenant.hospitalId) {
+      existingQ = existingQ.eq("hospital_id", tenant.hospitalId);
+    }
+    const { data: existing } = await existingQ.maybeSingle();
 
     if (existing) {
       return NextResponse.json(
@@ -184,22 +303,28 @@ export async function POST(request: Request) {
       }
     }
 
-    const insertPayload: Record<string, unknown> = {
-      patient_name: sanitizeText(stripHtml(data.patientName)),
-      phone: data.phone.trim(),
-      email: data.email.toLowerCase().trim(),
-      age: data.age,
-      gender: data.gender,
-      problem: sanitizeText(stripHtml(data.problem)),
-      doctor_id: data.doctorId,
-      doctor_name: doctorName,
-      date: data.date,
-      time_slot: data.timeSlot,
-      period,
-      type: data.type,
-      status: "confirmed",
-      booking_ref,
-    };
+    const queue_token = await nextQueueToken(supabase, data.date);
+
+    const insertPayload: Record<string, unknown> = withHospitalId(
+      {
+        patient_name: sanitizeText(stripHtml(data.patientName)),
+        phone: data.phone.trim(),
+        email: data.email.toLowerCase().trim(),
+        age: data.age,
+        gender: data.gender,
+        problem: sanitizeText(stripHtml(data.problem)),
+        doctor_id: data.doctorId,
+        doctor_name: doctorName,
+        date: data.date,
+        time_slot: data.timeSlot,
+        period,
+        type: data.type,
+        status: "confirmed",
+        booking_ref,
+        queue_token,
+      },
+      tenant.hospitalId
+    );
 
     if (data.departmentId && data.departmentId.length > 10) {
       insertPayload.department_id = data.departmentId;
@@ -216,7 +341,7 @@ export async function POST(request: Request) {
 
     if (
       error &&
-      /department_id|department_name|booking_ref|column|schema cache/i.test(
+      /department_id|department_name|booking_ref|queue_token|hospital_id|column|schema cache/i.test(
         error.message
       )
     ) {
@@ -224,6 +349,10 @@ export async function POST(request: Request) {
       delete legacy.department_id;
       delete legacy.department_name;
       delete legacy.booking_ref;
+      delete legacy.queue_token;
+      if (/hospital_id/i.test(error.message)) {
+        delete legacy.hospital_id;
+      }
       const retry = await supabase
         .from("appointments")
         .insert(legacy)

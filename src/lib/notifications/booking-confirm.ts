@@ -41,10 +41,9 @@ export type BookingConfirmResult = {
 export async function sendBookingConfirmations(
   input: BookingConfirmInput
 ): Promise<BookingConfirmResult> {
-  const hospitalName = input.hospitalName || "Sri Srinivasa Hospital";
-  const doctorName =
-    input.doctorName || "Dr. Varaprasad Venkata Sumanth";
-  const departmentName = input.departmentName || "Pulmonology";
+  const hospitalName = input.hospitalName || "Hospital";
+  const doctorName = input.doctorName || "Doctor";
+  const departmentName = input.departmentName || "";
   const bookingRef = input.bookingRef || input.appointmentId || "";
 
   // 1) Email

@@ -92,7 +92,7 @@ async function firstCms(
  * → gallery hospital category → local building photo
  */
 export async function resolveHospitalBuilding(
-  hospitalName = "Sri Srinivasa Hospital"
+  hospitalName = process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital"
 ): Promise<SiteImage> {
   const cms = await firstCms(
     [
@@ -225,7 +225,7 @@ export async function resolveDoctorMedia(input?: {
  * Dynamic only — no single hardcoded path as primary source.
  */
 export async function resolveHomeSliderImages(
-  hospitalName = "Sri Srinivasa Hospital"
+  hospitalName = process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital"
 ): Promise<SiteImage[]> {
   const slides: SiteImage[] = [];
   const seen = new Set<string>();

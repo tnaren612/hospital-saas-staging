@@ -21,8 +21,9 @@ import { Button } from "@/components/ui/button";
 const links = [
   { href: "/patient/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/patient/appointments", label: "Appointments", icon: CalendarDays },
+  { href: "/patient/prescriptions", label: "Prescriptions", icon: FileText },
   { href: "/patient/payments", label: "Payments", icon: IndianRupee },
-  { href: "/patient/reports", label: "Reports", icon: FileText },
+  { href: "/patient/reports", label: "Lab Reports", icon: FileText },
   { href: "/patient/documents", label: "Documents", icon: FolderOpen },
   { href: "/patient/notifications", label: "Notifications", icon: Bell },
   { href: "/patient/profile", label: "Profile", icon: User },

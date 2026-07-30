@@ -20,7 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
     description:
       doctor.seo_description ||
       doctor.biography?.slice(0, 160) ||
-      "Meet our consultant pulmonologist at Sri Srinivasa Hospital, Badvel.",
+      "Meet our consultant and review available services.",
     path: "/doctor",
     image: doctor.photo_url || "/assets/images/hospital/og-image.svg",
   });

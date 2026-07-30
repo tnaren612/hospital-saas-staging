@@ -307,7 +307,7 @@ export function ContactContent() {
 
         <div className="mt-10 overflow-hidden rounded-2xl border border-border shadow-soft sm:mt-12 sm:rounded-3xl">
           <iframe
-            title="Sri Srinivasa Hospital location map"
+            title={`${hospital.name} location map`}
             src={`https://maps.google.com/maps?q=${hospital.geo.lat},${hospital.geo.lng}&z=15&output=embed`}
             className="h-[280px] w-full border-0 sm:h-[360px]"
             loading="lazy"

@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
   title: "Gallery",
-  description: "Hospital gallery — facilities, care spaces, and infrastructure at Sri Srinivasa Hospital, Badvel.",
+  description: "Hospital gallery featuring facilities, care spaces, and infrastructure.",
   path: "/gallery",
 });
 

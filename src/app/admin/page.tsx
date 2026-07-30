@@ -13,6 +13,6 @@ export default async function AdminIndexPage() {
     redirect(session ? "/admin/dashboard" : "/admin/login");
   }
 
-  const demo = cookies().get("ssh_admin_demo")?.value === "1";
+  const demo = (await cookies()).get("ssh_admin_demo")?.value === "1";
   redirect(demo ? "/admin/dashboard" : "/admin/login");
 }

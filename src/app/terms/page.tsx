@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/pages/legal-page";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
   title: "Terms of Use",
-  description: "Terms of use for Sri Srinivasa Hospital website demo.",
+  description: "Terms governing use of this hospital website.",
   path: "/terms",
 });
 
 export default function TermsPage() {
-  return (
+  const fallback = (
     <LegalPage
       title="Terms of Use"
       updated="July 26, 2026"
@@ -41,4 +42,5 @@ export default function TermsPage() {
       ]}
     />
   );
+  return <CmsPageRenderer pageKey="terms" fallback={fallback} />;
 }

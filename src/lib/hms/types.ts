@@ -52,6 +52,8 @@ export type HospitalDoctor = {
   faqs?: DoctorFaq[];
   consultation_fee: number;
   video_consultation_fee?: number | null;
+  /** in_person | video */
+  consultation_types?: string[];
   available_days: string[];
   time_slots: string[];
   consultation_timings?: string;
@@ -62,6 +64,8 @@ export type HospitalDoctor = {
   seo_description?: string | null;
   status: EntityStatus;
   sort_order: number;
+  profile_user_id?: string | null;
+  deleted_at?: string | null;
   department?: Department | null;
   created_at?: string;
   updated_at?: string;
@@ -76,10 +80,15 @@ export type HospitalPatient = {
   gender: "male" | "female" | "other" | null;
   address: string;
   medical_history: string;
+  allergies?: string;
   blood_group: string | null;
   emergency_contact: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
   notes: string;
   status: EntityStatus;
+  portal_user_id?: string | null;
+  deleted_at?: string | null;
   created_at?: string;
   updated_at?: string;
 };

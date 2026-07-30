@@ -5,7 +5,7 @@ import { createMetadata } from "@/lib/seo";
 export const metadata: Metadata = createMetadata({
   title: "Book Appointment",
   description:
-    "Book an in-person or video appointment with Dr. Varaprasad Venkata Sumanth at Sri Srinivasa Hospital, Badvel.",
+    "Book an in-person or video appointment with an available specialist.",
   path: "/appointment",
 });
 

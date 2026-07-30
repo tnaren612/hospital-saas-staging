@@ -1,13 +1,14 @@
 import { CareersContent } from "@/components/pages/careers-content";
 import { createMetadata } from "@/lib/seo";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 
 export const metadata = createMetadata({
   title: "Careers",
   description:
-    "Join Sri Srinivasa Hospital, Badvel — nursing, front desk, diagnostics, and clinical support roles.",
+    "Explore nursing, front desk, diagnostics, and clinical support careers.",
   path: "/careers",
 });
 
 export default function CareersPage() {
-  return <CareersContent />;
+  return <CmsPageRenderer pageKey="careers" fallback={<CareersContent />} />;
 }

@@ -56,7 +56,7 @@ export function DoctorPreview() {
   ].filter((v, i, arr): v is string => Boolean(v) && arr.indexOf(v) === i);
 
   const photo = chain[Math.min(photoIndex, chain.length - 1)];
-  const name = doctor.name || "Dr. Varaprasad Venkata Sumanth";
+  const name = doctor.name || "Doctor";
   const title =
     doctor.title?.trim() ||
     "Consultant Pulmonologist & Critical Care Specialist";

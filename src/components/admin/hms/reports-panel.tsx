@@ -19,6 +19,7 @@ import {
 } from "@/lib/hms/export";
 import { formatCurrency } from "@/lib/utils";
 import type { HospitalDoctor, Department } from "@/lib/hms/types";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 type ReportResponse = {
   summary: {
@@ -36,6 +37,7 @@ type ReportResponse = {
 };
 
 export function ReportsPanel() {
+  const { config } = useHospitalConfig();
   const today = format(new Date(), "yyyy-MM-dd");
   const [from, setFrom] = useState(
     format(startOfMonth(new Date()), "yyyy-MM-dd")
@@ -139,7 +141,8 @@ export function ReportsPanel() {
               onClick={() =>
                 printHtmlReport(
                   `SSH Report ${from} → ${to}`,
-                  rowsToTableHtml(rows)
+                  rowsToTableHtml(rows),
+                  config.branding.name
                 )
               }
             >

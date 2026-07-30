@@ -1,0 +1,21 @@
+import {expect,test} from "@playwright/test";
+const base=process.env.PLAYWRIGHT_BASE_URL||"http://127.0.0.1:3000";
+test("full inpatient journey",async({page})=>{
+ const email=process.env.E2E_ADMIN_EMAIL,password=process.env.E2E_ADMIN_PASSWORD;
+ test.skip(!email||!password,"Staging admin required");
+ await page.goto(`${base}/admin/login`);await page.locator('input[type="email"]').fill(email!);await page.locator('input[type="password"]').fill(password!);await page.locator('button[type="submit"]').click();await page.waitForURL(/admin\/dashboard/);
+ const phone=`901${Date.now().toString().slice(-7)}`;
+ const patient=await page.request.post(`${base}/api/admin/patients`,{headers:{origin:base},data:{full_name:"IPD E2E Patient",phone,age:52,gender:"other",address:"Staging"}});
+ expect(patient.status()).toBe(201);
+ await page.goto(`${base}/admin/ipd`);
+ await page.getByLabel("IPD patient").selectOption({label:`IPD E2E Patient · ${phone}`});
+ const bed=page.getByLabel("IPD bed");await expect.poll(()=>bed.locator("option").count()).toBeGreaterThanOrEqual(3);await bed.selectOption({index:1});
+ await page.getByText("Admission reason").locator("..").getByRole("textbox").fill("Observation after procedure");
+ await page.getByText("Provisional diagnosis").locator("..").getByRole("textbox").fill("Post-procedure monitoring");
+ await page.getByRole("button",{name:"Admit patient"}).click();await expect(page.getByText("Patient admitted")).toBeVisible();
+ const card=page.getByText("IPD E2E Patient").locator("..").locator("..");
+ await card.getByLabel(/Transfer bed/).selectOption({index:1});await expect(page.getByText("IPD updated")).toBeVisible();
+ await card.getByRole("button",{name:"Plan discharge"}).click();await expect(page.getByText("IPD updated")).toBeVisible();
+ await card.getByRole("button",{name:"Discharge",exact:true}).click();await expect(page.getByText("IPD updated")).toBeVisible();
+ const report=await page.request.get(`${base}/api/ipd/report`);expect(report.status()).toBe(200);expect(report.headers()["content-type"]).toContain("text/csv");
+});

@@ -8,12 +8,11 @@ import { createMetadata } from "@/lib/seo";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
-export async function generateMetadata({
-  params,
-}: PageProps): Promise<Metadata> {
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
+  const params = await props.params;
   try {
     const article = await getArticleBySlug(params.slug);
     if (!article) {
@@ -38,7 +37,8 @@ export async function generateMetadata({
   }
 }
 
-export default async function BlogArticlePage({ params }: PageProps) {
+export default async function BlogArticlePage(props: PageProps) {
+  const params = await props.params;
   let article = null;
   try {
     article = await getArticleBySlug(params.slug);

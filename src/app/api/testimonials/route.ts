@@ -7,21 +7,10 @@ import {
   hasSupabaseConfig,
 } from "@/lib/supabase/env";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
-import testimonialsJson from "@/data/testimonials.json";
-import { getPatientAvatar } from "@/lib/assets/production-catalog";
 import type { Testimonial } from "@/types";
 import { getAdminSession } from "@/lib/auth/admin";
 
 export const dynamic = "force-dynamic";
-
-function defaults(): Testimonial[] {
-  return (testimonialsJson as Testimonial[]).map((t, i) => ({
-    ...t,
-    image: getPatientAvatar(i),
-    treatment: t.treatment || t.role,
-    published: t.published !== false,
-  }));
-}
 
 function mapRow(row: Record<string, unknown>): Testimonial {
   return {
@@ -57,10 +46,7 @@ export async function GET(request: Request) {
   }
 
   if (!hasSupabaseConfig()) {
-    const data = admin
-      ? defaults()
-      : defaults().filter((t) => t.published !== false);
-    return NextResponse.json({ data, source: "static" });
+    return NextResponse.json({ data: [], source: "unconfigured" });
   }
 
   try {
@@ -83,21 +69,15 @@ export async function GET(request: Request) {
     const { data, error } = await q;
     if (error) {
       // Table may not exist yet
-      const fallback = admin
-        ? defaults()
-        : defaults().filter((t) => t.published !== false);
       return NextResponse.json({
-        data: fallback,
-        source: "static",
+        data: [],
+        source: "cms",
         warning: error.message,
       });
     }
 
     if (!data?.length) {
-      const fallback = admin
-        ? defaults()
-        : defaults().filter((t) => t.published !== false);
-      return NextResponse.json({ data: fallback, source: "static" });
+      return NextResponse.json({ data: [], source: "cms" });
     }
 
     return NextResponse.json({
@@ -107,7 +87,7 @@ export async function GET(request: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json(
-      { data: defaults().filter((t) => t.published !== false), source: "static", error: message },
+      { data: [], source: "cms", error: message },
       { status: 200 }
     );
   }

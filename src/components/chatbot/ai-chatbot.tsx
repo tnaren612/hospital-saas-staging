@@ -8,8 +8,10 @@ import { getHospital, getDoctor } from "@/lib/data";
 import { formatCurrency, generateId } from "@/lib/utils";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
+import type { HospitalConfig } from "@/lib/hospital/types";
 
-function getReply(input: string): string {
+function getReply(input: string, config: HospitalConfig): string {
   const q = input.toLowerCase();
   const hospital = getHospital();
   const doctor = getDoctor();
@@ -21,12 +23,12 @@ function getReply(input: string): string {
     return `${doctor.name} consults during OPD hours: ${hospital.timings.opd}. Emergency care: ${hospital.timings.emergency}.`;
   }
   if (/emerg|ambulance|urgent|critical/.test(q)) {
-    return `For emergencies call ${hospital.emergencyPhone} immediately. 24×7 ambulance and critical care are available at Sri Srinivasa Hospital.`;
+    return `For emergencies call ${config.contact.emergency_phone} immediately. Emergency and critical care availability: ${config.working_hours.emergency}.`;
   }
   if (/fee|cost|price|charge/.test(q)) {
     return `Consultation fee is approximately ${formatCurrency(doctor.consultationFee)}. Video consultation is ${formatCurrency(doctor.videoConsultationFee)}. Packages and tests are extra.`;
   }
-  if (/locat|address|where|map|badvel/.test(q)) {
+  if (/locat|address|where|map/.test(q)) {
     return `We are at ${hospital.address.line1}, ${hospital.address.line2}, ${hospital.address.city}, ${hospital.address.state} ${hospital.address.pincode}.`;
   }
   if (/service|treat|pulmon|asthma|copd|lung/.test(q)) {
@@ -43,6 +45,7 @@ function getReply(input: string): string {
 
 export function AiChatbot() {
   const { t } = useLocale();
+  const { config } = useHospitalConfig();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
@@ -82,7 +85,7 @@ export function AiChatbot() {
     const reply: ChatMessage = {
       id: generateId("msg"),
       role: "assistant",
-      content: getReply(text),
+      content: getReply(text, config),
       timestamp: new Date().toISOString(),
     };
     setMessages((m) => [...m, reply]);

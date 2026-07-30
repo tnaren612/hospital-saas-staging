@@ -37,7 +37,7 @@ export type BlogArticleInput = {
 const SELECT =
   "id, slug, title, excerpt, content, category, cover_image, tags, author, published_at, read_time, is_published, created_at, updated_at";
 
-const DEFAULT_AUTHOR = "Dr. Varaprasad Venkata Sumanth";
+const DEFAULT_AUTHOR = process.env.NEXT_PUBLIC_CONTENT_AUTHOR || "Hospital Editorial Team";
 const PREFERRED_TABLE = "blog_articles";
 const FALLBACK_TABLE = "articles";
 
@@ -148,7 +148,7 @@ export async function getAllArticles(): Promise<BlogArticle[]> {
     throw new Error(error.message);
   }
 
-  return (data || []).map((r) => mapRow(r as Record<string, unknown>));
+  return (data || []).map((r: Record<string, unknown>) => mapRow(r));
 }
 
 /** Public: single published article by slug. */
@@ -188,7 +188,7 @@ export async function listArticlesAdmin(): Promise<BlogArticle[]> {
     .order("published_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data || []).map((r) => mapRow(r as Record<string, unknown>));
+  return (data || []).map((r: Record<string, unknown>) => mapRow(r));
 }
 
 /** Admin: create article. Cover URL should come from Gallery CMS upload. */

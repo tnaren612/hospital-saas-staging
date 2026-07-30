@@ -12,12 +12,14 @@ import {
 } from "@/lib/testimonials/service";
 import { useLocale } from "@/hooks/use-locale";
 import type { Testimonial } from "@/types";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 export function TestimonialsPreview() {
   const [items, setItems] = useState<Testimonial[]>(() =>
     getFeaturedTestimonials(6)
   );
   const { t } = useLocale();
+  const { config } = useHospitalConfig();
 
   useEffect(() => {
     let cancelled = false;
@@ -46,8 +48,8 @@ export function TestimonialsPreview() {
     <Section className="bg-muted/40">
       <SectionHeader
         badge="Patient Stories"
-        title="Trusted by Families Across Badvel"
-        subtitle="Real experiences from patients who chose Sri Srinivasa Hospital for respiratory care."
+        title={`Trusted by Families Across ${config.contact.city || "the Community"}`}
+        subtitle={`Real experiences from patients who chose ${config.branding.name} for care.`}
       />
       <div className="px-1 sm:px-2">
         <TestimonialCarousel items={items} variant="preview" autoplay />

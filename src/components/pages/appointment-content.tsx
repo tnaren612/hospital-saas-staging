@@ -1,11 +1,25 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Suspense } from "react";
 import { Section, SectionHeader } from "@/components/ui/section";
 import { AppointmentForm } from "@/components/appointment/appointment-form";
-import { DoctorCalendar } from "@/components/appointment/doctor-calendar";
 import { CmsPageBanner } from "@/components/ui/cms-page-banner";
 import { useLocale } from "@/hooks/use-locale";
+
+/** Calendar is secondary — load after form is interactive */
+const DoctorCalendar = dynamic(
+  () =>
+    import("@/components/appointment/doctor-calendar").then(
+      (m) => m.DoctorCalendar
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-64 animate-pulse rounded-3xl border bg-muted/40" />
+    ),
+  }
+);
 
 export function AppointmentContent() {
   const { t } = useLocale();

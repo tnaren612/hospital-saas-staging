@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { ServicesContent } from "@/components/pages/services-content";
 import { createMetadata } from "@/lib/seo";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 
 export const metadata: Metadata = createMetadata({
   title: "Services",
   description:
-    "Pulmonology, asthma care, COPD management, critical care, sleep medicine, video consultation, and emergency services at Sri Srinivasa Hospital.",
+    "Clinical services, consultations, diagnostics, critical care, and emergency support.",
   path: "/services",
 });
 
 export default function ServicesPage() {
-  return <ServicesContent />;
+  return <CmsPageRenderer pageKey="services" fallback={<ServicesContent />} />;
 }

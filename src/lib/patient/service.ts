@@ -5,6 +5,7 @@
  */
 
 import { createClientOrNull } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
 import {
   hasSupabaseConfig,
   isSupabaseBackendEnabled,
@@ -25,15 +26,20 @@ import type {
 import { isActiveStatus } from "@/lib/patient/types";
 
 function mapPatient(row: Record<string, unknown>): PortalPatient {
-  const first = String(row.first_name || "");
-  const last = String(row.last_name || "");
+  const storedFullName = String(row.full_name || "").trim();
+  const nameParts = storedFullName.split(/\s+/).filter(Boolean);
+  const first = String(row.first_name || nameParts[0] || "");
+  const last = String(
+    row.last_name || (storedFullName ? nameParts.slice(1).join(" ") : "")
+  );
   return {
     id: String(row.id),
-    user_id: String(row.user_id),
+    user_id: String(row.user_id || row.portal_user_id || row.id),
     mrn: row.mrn ? String(row.mrn) : null,
     first_name: first,
     last_name: last,
-    full_name: [first, last].filter(Boolean).join(" ") || "Patient",
+    full_name:
+      storedFullName || [first, last].filter(Boolean).join(" ") || "Patient",
     gender: (row.gender as PortalPatient["gender"]) || null,
     date_of_birth: row.date_of_birth ? String(row.date_of_birth) : null,
     phone: row.phone ? String(row.phone) : null,
@@ -157,17 +163,21 @@ export function getDemoDashboard(): PatientDashboardData {
   };
 }
 
-export async function getPatientDashboard(): Promise<PatientDashboardData> {
+export async function getPatientDashboard(
+  client?: ReturnType<typeof createClientOrNull>,
+  accessToken?: string,
+  authenticatedUser?: User
+): Promise<PatientDashboardData> {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
     return getDemoDashboard();
   }
 
-  const supabase = createClientOrNull();
+  const supabase = client ?? createClientOrNull();
   if (!supabase) return getDemoDashboard();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user =
+    authenticatedUser ??
+    (await supabase.auth.getUser(accessToken)).data.user;
 
   if (!user) {
     // Fall back to demo local patient if present
@@ -178,6 +188,7 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
 
   // Ensure portal patient row
   let patientRow: Record<string, unknown> | null = null;
+  let legacyPatientTable = false;
   {
     const { data, error } = await supabase
       .from("patients")
@@ -187,12 +198,31 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
 
     if (error) {
       if (/schema cache|does not exist|could not find/i.test(error.message)) {
-        return getDemoDashboard();
+        legacyPatientTable = true;
+      } else {
+        console.warn("[patient] load:", error.message);
       }
-      console.warn("[patient] load:", error.message);
-      return getDemoDashboard();
+    } else {
+      patientRow = data as Record<string, unknown> | null;
     }
-    patientRow = data as Record<string, unknown> | null;
+  }
+
+  if (legacyPatientTable) {
+    const { data: linked } = await supabase
+      .from("hospital_patients")
+      .select("*")
+      .eq("portal_user_id", user.id)
+      .maybeSingle();
+    patientRow = linked as Record<string, unknown> | null;
+
+    if (!patientRow && user.email) {
+      const { data: byEmail } = await supabase
+        .from("hospital_patients")
+        .select("*")
+        .eq("email", user.email)
+        .maybeSingle();
+      patientRow = byEmail as Record<string, unknown> | null;
+    }
   }
 
   if (!patientRow) {
@@ -203,23 +233,34 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
       user.email?.split("@")[0] ||
       "Patient";
     const parts = String(full).split(" ");
-    const insert = {
-      user_id: user.id,
-      first_name: parts[0] || "Patient",
-      last_name: parts.slice(1).join(" "),
-      email: user.email || null,
-      phone: (meta.phone as string) || user.phone || null,
-    };
-    const { data: created, error: cErr } = await supabase
-      .from("patients")
-      .insert(insert)
-      .select("*")
-      .single();
-    if (cErr || !created) {
-      console.warn("[patient] create profile:", cErr?.message);
-      return getDemoDashboard();
+    if (legacyPatientTable) {
+      patientRow = {
+        id: user.id,
+        portal_user_id: user.id,
+        full_name: full,
+        email: user.email || null,
+        phone: (meta.phone as string) || user.phone || null,
+        address: "",
+      };
+    } else {
+      const insert = {
+        user_id: user.id,
+        first_name: parts[0] || "Patient",
+        last_name: parts.slice(1).join(" "),
+        email: user.email || null,
+        phone: (meta.phone as string) || user.phone || null,
+      };
+      const { data: created, error: cErr } = await supabase
+        .from("patients")
+        .insert(insert)
+        .select("*")
+        .single();
+      if (cErr || !created) {
+        console.warn("[patient] create profile:", cErr?.message);
+        return getDemoDashboard();
+      }
+      patientRow = created as Record<string, unknown>;
     }
-    patientRow = created as Record<string, unknown>;
   }
 
   const patient = mapPatient(patientRow);
@@ -241,8 +282,9 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
   }
 
   const { data: aptRows } = await aptQuery;
-  const appointments = (aptRows || []).map((r) =>
-    mapAppointment(r as Record<string, unknown>)
+  const appointments: Appointment[] = (aptRows || []).map(
+    (r: Record<string, unknown>) =>
+      mapAppointment(r)
   );
 
   const today = new Date().toISOString().slice(0, 10);
@@ -259,7 +301,7 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
     .order("uploaded_at", { ascending: false })
     .limit(20);
 
-  const reports: PatientReport[] = (reportRows || []).map((r) => ({
+  const reports: PatientReport[] = (reportRows || []).map((r: Record<string, unknown>) => ({
     id: String(r.id),
     patient_id: String(r.patient_id),
     appointment_id: r.appointment_id ? String(r.appointment_id) : null,
@@ -277,7 +319,7 @@ export async function getPatientDashboard(): Promise<PatientDashboardData> {
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const notifications: PatientNotification[] = (notifRows || []).map((n) => ({
+  const notifications: PatientNotification[] = (notifRows || []).map((n: Record<string, unknown>) => ({
     id: String(n.id),
     patient_id: String(n.patient_id),
     title: String(n.title),
@@ -368,7 +410,7 @@ export async function getPatientAppointments(): Promise<Appointment[]> {
     console.warn("[patient] appointments:", error.message);
     return dash.recentAppointments;
   }
-  return (data || []).map((r) => mapAppointment(r as Record<string, unknown>));
+  return (data || []).map((r: Record<string, unknown>) => mapAppointment(r));
 }
 
 export async function cancelPatientAppointment(
@@ -389,12 +431,62 @@ export async function cancelPatientAppointment(
       : { ok: false, error: "Appointment not found" };
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Sign in required to cancel" };
+  }
+
+  // Ownership: patient_id or phone match on profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("phone")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const { data: existing } = await supabase
+    .from("appointments")
+    .select("id, phone, patient_id, status, date")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!existing) return { ok: false, error: "Appointment not found" };
+  if (existing.status === "cancelled") {
+    return { ok: false, error: "Already cancelled" };
+  }
+  if (existing.status === "completed") {
+    return { ok: false, error: "Completed appointments cannot be cancelled" };
+  }
+
+  const owns =
+    existing.patient_id === user.id ||
+    (profile?.phone && String(existing.phone) === String(profile.phone));
+  if (!owns) {
+    return { ok: false, error: "Not authorized to cancel this appointment" };
+  }
+
   const { error } = await supabase
     .from("appointments")
-    .update({ status: "cancelled" })
+    .update({
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+      cancel_reason: "Cancelled by patient",
+    })
     .eq("id", id);
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // Legacy without new columns
+    if (/column|schema cache/i.test(error.message)) {
+      const retry = await supabase
+        .from("appointments")
+        .update({ status: "cancelled" })
+        .eq("id", id);
+      if (retry.error) return { ok: false, error: retry.error.message };
+      return { ok: true };
+    }
+    return { ok: false, error: error.message };
+  }
   return { ok: true };
 }
 
@@ -416,6 +508,71 @@ export async function reschedulePatientAppointment(
     return updated
       ? { ok: true }
       : { ok: false, error: "Appointment not found" };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "Sign in required to reschedule" };
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("phone")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const { data: existing } = await supabase
+    .from("appointments")
+    .select("id, phone, patient_id, status, doctor_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!existing) return { ok: false, error: "Appointment not found" };
+  if (existing.status === "cancelled" || existing.status === "completed") {
+    return { ok: false, error: "This appointment cannot be rescheduled" };
+  }
+
+  const owns =
+    existing.patient_id === user.id ||
+    (profile?.phone && String(existing.phone) === String(profile.phone));
+  if (!owns) {
+    return { ok: false, error: "Not authorized to reschedule this appointment" };
+  }
+
+  // Conflict + leave checks
+  const { data: conflict } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("doctor_id", existing.doctor_id)
+    .eq("date", date)
+    .eq("time_slot", timeSlot)
+    .neq("id", id)
+    .not("status", "in", '("cancelled","no_show")')
+    .maybeSingle();
+  if (conflict) {
+    return { ok: false, error: "That slot is already booked" };
+  }
+
+  if (String(existing.doctor_id).length === 36) {
+    const { data: leave } = await supabase
+      .from("doctor_availability")
+      .select("status")
+      .eq("doctor_id", existing.doctor_id)
+      .eq("date", date)
+      .maybeSingle();
+    if (
+      leave &&
+      (leave.status === "on_leave" ||
+        leave.status === "holiday" ||
+        leave.status === "emergency")
+    ) {
+      return {
+        ok: false,
+        error: `Doctor unavailable (${leave.status}) on this date`,
+      };
+    }
   }
 
   const hour = parseInt(timeSlot, 10);
@@ -477,7 +634,7 @@ export async function getPatientDocuments(): Promise<PatientDocument[]> {
     return [];
   }
 
-  return (data || []).map((d) => ({
+  return (data || []).map((d: Record<string, unknown>) => ({
     id: String(d.id),
     patient_id: String(d.patient_id),
     type: String(d.type),
@@ -576,7 +733,10 @@ export function googleCalendarUrl(a: Appointment): string {
     text: `Appointment with ${a.doctorName}`,
     dates: `${fmt(start)}/${fmt(end)}`,
     details: `${a.problem}\nRef: ${a.bookingRef || a.id}`,
-    location: "Sri Srinivasa Hospital, Badvel",
+    location:
+      process.env.NEXT_PUBLIC_HOSPITAL_ADDRESS ||
+      process.env.NEXT_PUBLIC_HOSPITAL_NAME ||
+      "Hospital",
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -592,7 +752,10 @@ export function outlookCalendarUrl(a: Appointment): string {
     body: `${a.problem}\nRef: ${a.bookingRef || a.id}`,
     startdt: start.toISOString(),
     enddt: end.toISOString(),
-    location: "Sri Srinivasa Hospital, Badvel",
+    location:
+      process.env.NEXT_PUBLIC_HOSPITAL_ADDRESS ||
+      process.env.NEXT_PUBLIC_HOSPITAL_NAME ||
+      "Hospital",
   });
   return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
 }
@@ -615,7 +778,7 @@ function parseLocalDateTime(date: string, timeSlot: string): Date {
 
 export function confirmationText(a: Appointment): string {
   return [
-    "Sri Srinivasa Hospital — Appointment Confirmation",
+    `${process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital"} — Appointment Confirmation`,
     "",
     `Patient: ${a.patientName}`,
     `Phone: ${a.phone}`,

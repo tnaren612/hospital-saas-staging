@@ -31,7 +31,7 @@ export class ResendEmailProvider implements EmailProvider {
     const from =
       process.env.EMAIL_FROM ||
       process.env.RESEND_FROM ||
-      "Sri Srinivasa Hospital <onboarding@resend.dev>";
+      "Hospital <onboarding@resend.dev>";
 
     try {
       const res = await fetch("https://api.resend.com/emails", {

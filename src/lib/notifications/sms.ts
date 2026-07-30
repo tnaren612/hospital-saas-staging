@@ -94,7 +94,7 @@ export function buildPaymentSms(input: {
   invoiceNumber: string;
   hospitalName?: string;
 }): string {
-  const hospital = input.hospitalName || "Sri Srinivasa Hospital";
+  const hospital = input.hospitalName || "Hospital";
   return (
     `${hospital}: Payment Rs ${Number(input.amount).toFixed(0)} received. ` +
     `Invoice ${input.invoiceNumber}. Thank you, ${input.patientName}.`
@@ -107,10 +107,11 @@ export function buildAppointmentSms(input: {
   date: string;
   timeSlot: string;
   bookingRef?: string;
+  hospitalName?: string;
 }): string {
   const ref = input.bookingRef ? ` Ref:${input.bookingRef}` : "";
   return (
-    `SSH Hospital: Appt confirmed for ${input.patientName} with ${input.doctorName} ` +
+    `${input.hospitalName || "Hospital"}: Appt confirmed for ${input.patientName} with ${input.doctorName} ` +
     `on ${input.date} ${input.timeSlot}.${ref}`
   );
 }

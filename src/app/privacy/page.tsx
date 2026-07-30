@@ -1,22 +1,23 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/pages/legal-page";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
   title: "Privacy Policy",
-  description: "Privacy policy for Sri Srinivasa Hospital website demo.",
+  description: "Privacy policy for this hospital website.",
   path: "/privacy",
 });
 
 export default function PrivacyPage() {
-  return (
+  const fallback = (
     <LegalPage
       title="Privacy Policy"
       updated="July 26, 2026"
       sections={[
         {
           heading: "Overview",
-          body: "This Privacy Policy describes how Sri Srinivasa Hospital (demo website) handles information you submit through forms on this site. This is a frontend-only demonstration; data is stored in your browser localStorage and is not transmitted to a server unless you later connect a backend.",
+          body: "This Privacy Policy describes how the hospital handles information submitted through this website. Tenant administrators must replace this draft with their approved, versioned privacy policy before launch.",
         },
         {
           heading: "Information We Collect",
@@ -41,4 +42,5 @@ export default function PrivacyPage() {
       ]}
     />
   );
+  return <CmsPageRenderer pageKey="privacy" fallback={fallback} />;
 }

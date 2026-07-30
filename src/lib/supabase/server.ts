@@ -14,12 +14,12 @@ import {
 } from "@/lib/supabase/env";
 
 /** Cookie-aware client (respects user session + RLS). */
-export function createServerSupabaseClient() {
+export async function createServerSupabaseClient() {
   if (!hasSupabaseConfig()) {
     throw new Error("Supabase is not configured on the server.");
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
 
   return createServerClient(getSupabaseUrl()!, getSupabaseAnonKey()!, {
     cookies: {
@@ -55,6 +55,37 @@ export function createServiceRoleClient() {
 
   // Untyped service client avoids Insert inference issues with custom Database maps
   return createSupabaseClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/** RLS-respecting server client authenticated with a browser access token. */
+export function createTokenSupabaseClient(accessToken: string) {
+  if (!hasSupabaseConfig()) {
+    throw new Error("Supabase is not configured on the server.");
+  }
+  return createSupabaseClient(getSupabaseUrl()!, getSupabaseAnonKey()!, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+/** Non-persistent server client for credential authentication endpoints. */
+export function createServerAuthClient() {
+  if (!hasSupabaseConfig()) {
+    throw new Error("Supabase is not configured on the server.");
+  }
+  return createSupabaseClient(getSupabaseUrl()!, getSupabaseAnonKey()!, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

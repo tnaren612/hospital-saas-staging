@@ -23,9 +23,11 @@ export function AvailabilityManager() {
   const [rows, setRows] = useState<DoctorAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
   const [form, setForm] = useState({
     doctor_id: "",
     date: "",
+    date_to: "",
     status: "on_leave" as AvailabilityStatus,
     note: "",
   });
@@ -61,13 +63,37 @@ export function AvailabilityManager() {
 
   const save = async () => {
     if (!form.doctor_id || !form.date) {
-      toast.error("Doctor and date required");
+      toast.error("Doctor and start date required");
+      return;
+    }
+    if (bulkMode && !form.date_to) {
+      toast.error("End date required for date range");
       return;
     }
     setSaving(true);
     try {
-      await hmsMutate("/api/admin/availability", "POST", form);
-      toast.success("Availability saved");
+      if (bulkMode) {
+        const res = await hmsMutate<{ count?: number }>(
+          "/api/admin/availability",
+          "POST",
+          {
+            doctor_id: form.doctor_id,
+            from: form.date,
+            to: form.date_to,
+            status: form.status,
+            note: form.note,
+          }
+        );
+        toast.success(`Saved ${res.count ?? "range"} day(s)`);
+      } else {
+        await hmsMutate("/api/admin/availability", "POST", {
+          doctor_id: form.doctor_id,
+          date: form.date,
+          status: form.status,
+          note: form.note,
+        });
+        toast.success("Availability saved");
+      }
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
@@ -97,16 +123,19 @@ export function AvailabilityManager() {
     <div className="space-y-6">
       <PageHeader
         title="Doctor Availability"
-        description="Mark Available, On Leave, Holiday, or Emergency days"
+        description="Mark Available, On Leave, Holiday, or Emergency — single day or date range (max 90 days)"
         onRefresh={() => void load()}
         loading={loading}
       />
 
       <Card>
-        <CardContent className="grid gap-4 p-6 md:grid-cols-4">
-          <div>
-            <Label className="mb-2 block">Doctor</Label>
+        <CardContent className="grid gap-4 p-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="xl:col-span-2">
+            <Label htmlFor="avail-doctor" className="mb-2 block">
+              Doctor
+            </Label>
             <select
+              id="avail-doctor"
               className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
               value={form.doctor_id}
               onChange={(e) => setForm({ ...form, doctor_id: e.target.value })}
@@ -120,16 +149,35 @@ export function AvailabilityManager() {
             </select>
           </div>
           <div>
-            <Label className="mb-2 block">Date</Label>
+            <Label htmlFor="avail-from" className="mb-2 block">
+              {bulkMode ? "From date" : "Date"}
+            </Label>
             <Input
+              id="avail-from"
               type="date"
               value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
             />
           </div>
+          {bulkMode && (
+            <div>
+              <Label htmlFor="avail-to" className="mb-2 block">
+                To date
+              </Label>
+              <Input
+                id="avail-to"
+                type="date"
+                value={form.date_to}
+                onChange={(e) => setForm({ ...form, date_to: e.target.value })}
+              />
+            </div>
+          )}
           <div>
-            <Label className="mb-2 block">Status</Label>
+            <Label htmlFor="avail-status" className="mb-2 block">
+              Status
+            </Label>
             <select
+              id="avail-status"
               className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
               value={form.status}
               onChange={(e) =>
@@ -147,17 +195,29 @@ export function AvailabilityManager() {
             </select>
           </div>
           <div>
-            <Label className="mb-2 block">Note</Label>
+            <Label htmlFor="avail-note" className="mb-2 block">
+              Note
+            </Label>
             <Input
+              id="avail-note"
               value={form.note}
               onChange={(e) => setForm({ ...form, note: e.target.value })}
               placeholder="Optional"
             />
           </div>
-          <div className="md:col-span-4">
+          <div className="flex flex-wrap items-end gap-3 md:col-span-2 xl:col-span-6">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={bulkMode}
+                onChange={(e) => setBulkMode(e.target.checked)}
+              />
+              Date range (bulk)
+            </label>
             <Button onClick={() => void save()} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Save status
+              {bulkMode ? "Save range" : "Save status"}
             </Button>
           </div>
         </CardContent>

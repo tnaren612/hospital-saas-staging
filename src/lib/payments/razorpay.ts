@@ -6,6 +6,7 @@
  */
 
 import type { GatewayOrderResult } from "@/lib/payments/types";
+import { allowMockPayments } from "@/lib/payments/production-guard";
 
 export function getRazorpayKeyId(): string {
   const id = process.env.RAZORPAY_KEY_ID || "";
@@ -39,7 +40,12 @@ export async function createRazorpayOrder(input: {
   const currency = (input.currency || "INR").toUpperCase();
 
   if (!isRazorpayConfigured()) {
-    // Mock fallback when env keys missing — preserves local/dev flow
+    // C-04: never create mock orders in production
+    if (!allowMockPayments()) {
+      throw new Error(
+        "Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
+      );
+    }
     const orderId = `order_mock_${Date.now()}`;
     return {
       provider: "mock",
@@ -48,7 +54,7 @@ export async function createRazorpayOrder(input: {
       amountPaise,
       currency,
       publicKey: keyId || "rzp_test_mock",
-      name: "Sri Srinivasa Hospital",
+      name: "Hospital",
       description: input.description || "Hospital payment",
       prefill: {
         name: input.customerName,
@@ -98,7 +104,7 @@ export async function createRazorpayOrder(input: {
     amountPaise: json.amount || amountPaise,
     currency: (json.currency || currency).toUpperCase(),
     publicKey: keyId,
-    name: "Sri Srinivasa Hospital",
+    name: "Hospital",
     description: input.description || "Hospital payment",
     prefill: {
       name: input.customerName,
@@ -126,7 +132,8 @@ export async function verifyRazorpaySignature(input: {
 }): Promise<boolean> {
   const secret = getRazorpayKeySecret();
   if (!secret) {
-    // Mock path only when secret is absent
+    // C-04: mock verify only in non-production
+    if (!allowMockPayments()) return false;
     return (
       input.signature === "mock_signature" ||
       input.paymentId.startsWith("pay_mock") ||
@@ -177,7 +184,8 @@ export async function verifyRazorpayWebhookSignature(input: {
 }): Promise<boolean> {
   const secret = getRazorpayWebhookSecret();
   if (!secret) {
-    // Without webhook secret only explicit mock signature is accepted
+    // C-04: mock webhook only in non-production
+    if (!allowMockPayments()) return false;
     return input.signature === "mock_webhook_signature";
   }
   if (!input.rawBody || !input.signature) return false;

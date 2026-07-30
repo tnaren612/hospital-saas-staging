@@ -46,10 +46,10 @@ export const translations = {
       highContrast: "High Contrast",
     },
     hero: {
-      badge: "Trusted Pulmonology Care in Badvel",
+      badge: "Trusted Healthcare",
       title: "Breathe Better. Live Healthier.",
       subtitle:
-        "Sri Srinivasa Hospital delivers world-class respiratory medicine, critical care, and compassionate treatment under Dr. Varaprasad Venkata Sumanth.",
+        "Compassionate, evidence-based care delivered by experienced clinicians.",
       patients: "Patients Treated",
       experience: "Years Expertise",
       satisfaction: "Satisfaction",
@@ -92,10 +92,10 @@ export const translations = {
       address: "Address",
     },
     chatbot: {
-      title: "SSH Health Assistant",
+      title: "Hospital Health Assistant",
       placeholder: "Ask about appointments, timings, fees...",
       greeting:
-        "Hello! I am the Sri Srinivasa Hospital assistant. I can help with appointments, doctor availability, emergency contacts, timings, fees, location, services, and insurance.",
+        "Hello! I am the hospital assistant. I can help with appointments, doctor availability, emergency contacts, timings, fees, location, services, and insurance.",
     },
     patient: {
       login: "Patient Login",

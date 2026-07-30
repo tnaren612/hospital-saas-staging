@@ -22,6 +22,7 @@ import {
   type PublicDoctor,
 } from "@/lib/doctors/service";
 import { formatCurrency } from "@/lib/utils";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 import { useDoctorGalleryImages } from "@/hooks/use-site-images";
 import {
   DOCTOR_BANNER,
@@ -38,6 +39,7 @@ export function DoctorProfileContent({
   doctor: PublicDoctor;
   related: PublicDoctor[];
 }) {
+  const { config } = useHospitalConfig();
   // doctor/banner + profile — same as Home Lead Specialist
   const media = resolveDoctorImage({
     photoUrl: doctor.photo_url,
@@ -175,7 +177,7 @@ export function DoctorProfileContent({
               <h2 className="text-2xl font-bold">Professional Profile</h2>
               <p className="mt-4 leading-relaxed text-muted-foreground">
                 {doctor.biography ||
-                  `${doctor.name} is a specialist consultant at Sri Srinivasa Hospital.`}
+                  `${doctor.name} is a specialist consultant at ${config.branding.name}.`}
               </p>
             </div>
 

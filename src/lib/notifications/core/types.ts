@@ -41,10 +41,19 @@ export type NotificationTemplateId =
   | "password_reset"
   | "lab_report_ready"
   | "prescription_ready"
+  | "lab_report_ready"
+  | "bill_generated"
   | "emergency"
   | "doctor_contact"
   | "patient_registration"
-  | "generic";
+  | "generic"
+  | "policy_assigned"
+  | "preauthorization_requested"
+  | "preauthorization_approved"
+  | "preauthorization_rejected"
+  | "claim_submitted"
+  | "claim_approved"
+  | "claim_settled";
 
 export type NotificationRecord = {
   id: string;

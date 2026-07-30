@@ -16,18 +16,17 @@ export type WhatsAppConfirmPayload = {
   hospitalName?: string;
 };
 
-/** Hospital WhatsApp number digits (no +). From hospital.json / env. */
+/** Hospital WhatsApp number digits (no +), supplied by tenant deployment config. */
 export function getHospitalWhatsAppDigits(): string {
   const fromEnv = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER?.replace(/\D/g, "");
   if (fromEnv && fromEnv.length >= 10) return fromEnv;
-  // Default Badvel hospital pattern from site data — override via env
   return process.env.NEXT_PUBLIC_HOSPITAL_WHATSAPP?.replace(/\D/g, "") || "";
 }
 
 export function buildAppointmentWhatsAppMessage(
   payload: WhatsAppConfirmPayload
 ): string {
-  const hospital = payload.hospitalName || "Sri Srinivasa Hospital";
+  const hospital = payload.hospitalName || "Hospital";
   return [
     `Hello ${payload.patientName}`,
     ``,
@@ -37,10 +36,10 @@ export function buildAppointmentWhatsAppMessage(
     hospital,
     ``,
     `Doctor:`,
-    payload.doctorName || "Dr. Varaprasad Venkata Sumanth",
+    payload.doctorName || "Doctor",
     ``,
     `Department:`,
-    payload.departmentName || "Pulmonology",
+    payload.departmentName || "Department",
     ``,
     `Date:`,
     payload.date,

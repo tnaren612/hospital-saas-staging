@@ -23,6 +23,7 @@ import { CmsPageBanner } from "@/components/ui/cms-page-banner";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { EmptyState } from "@/components/ui/empty-state";
 import careersJson from "@/data/careers.json";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 import { cn, formatDate } from "@/lib/utils";
 
 type Job = (typeof careersJson)[number];
@@ -39,6 +40,7 @@ const applySchema = z.object({
 type ApplyValues = z.infer<typeof applySchema>;
 
 export function CareersContent() {
+  const { config } = useHospitalConfig();
   const jobs = careersJson as Job[];
   const [openId, setOpenId] = useState<string | null>(jobs[0]?.id ?? null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -82,7 +84,7 @@ export function CareersContent() {
       <CmsPageBanner
         section="careers"
         title="Careers"
-        subtitle="Join Sri Srinivasa Hospital — build a career in compassionate specialist care."
+        subtitle={`Join ${config.branding.name} — build a career in compassionate care.`}
       />
       <div className="container mx-auto px-4 pt-6 sm:px-6 lg:px-8">
         <Breadcrumb items={[{ label: "Careers" }]} />

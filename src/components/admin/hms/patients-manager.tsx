@@ -26,8 +26,11 @@ const empty = {
   gender: "" as "" | "male" | "female" | "other",
   address: "",
   medical_history: "",
+  allergies: "",
   blood_group: "",
   emergency_contact: "",
+  emergency_contact_name: "",
+  emergency_contact_phone: "",
   notes: "",
   status: "active" as "active" | "inactive",
 };
@@ -36,6 +39,7 @@ export function PatientsManager() {
   const [items, setItems] = useState<PatientRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(empty);
@@ -47,16 +51,20 @@ export function PatientsManager() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await hmsGet<{ data: PatientRow[] }>("/api/admin/patients", {
-        q,
-      });
+      const params: Record<string, string> = {};
+      if (q) params.q = q;
+      if (statusFilter) params.status = statusFilter;
+      const res = await hmsGet<{ data: PatientRow[] }>(
+        "/api/admin/patients",
+        params
+      );
       setItems(res.data || []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, statusFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 250);
@@ -74,8 +82,11 @@ export function PatientsManager() {
         gender: form.gender || null,
         address: form.address,
         medical_history: form.medical_history,
+        allergies: form.allergies,
         blood_group: form.blood_group || null,
         emergency_contact: form.emergency_contact || null,
+        emergency_contact_name: form.emergency_contact_name || null,
+        emergency_contact_phone: form.emergency_contact_phone || null,
         notes: form.notes,
         status: form.status,
       };
@@ -107,10 +118,15 @@ export function PatientsManager() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this patient record?")) return;
+    if (
+      !confirm(
+        "Remove this patient from the active registry? (Soft delete — PHI history retained.)"
+      )
+    )
+      return;
     try {
       await hmsMutate(`/api/admin/patients/${id}`, "DELETE");
-      toast.success("Deleted");
+      toast.success("Patient removed from registry");
       setDetail(null);
       await load();
     } catch (e) {
@@ -139,14 +155,32 @@ export function PatientsManager() {
         }
       />
 
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-10"
-          placeholder="Search name, phone, email…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="relative min-w-[220px] flex-1 max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-10"
+            placeholder="Search name, phone, email…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search patients"
+          />
+        </div>
+        <div>
+          <Label htmlFor="patient-status" className="mb-1 block text-xs">
+            Status
+          </Label>
+          <select
+            id="patient-status"
+            className="flex h-11 min-w-[120px] rounded-xl border border-input bg-background px-3 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
       </div>
 
       {open && (
@@ -220,6 +254,17 @@ export function PatientsManager() {
                 }
               />
             </div>
+            <div className="md:col-span-2">
+              <Label className="mb-2 block">Allergies</Label>
+              <Textarea
+                value={form.allergies}
+                onChange={(e) =>
+                  setForm({ ...form, allergies: e.target.value })
+                }
+                placeholder="Drug / food allergies…"
+                className="min-h-[72px]"
+              />
+            </div>
             <div>
               <Label className="mb-2 block">Blood group</Label>
               <Input
@@ -227,15 +272,44 @@ export function PatientsManager() {
                 onChange={(e) =>
                   setForm({ ...form, blood_group: e.target.value })
                 }
+                placeholder="e.g. B+"
               />
             </div>
             <div>
-              <Label className="mb-2 block">Emergency contact</Label>
+              <Label className="mb-2 block">Emergency contact (legacy)</Label>
               <Input
                 value={form.emergency_contact}
                 onChange={(e) =>
                   setForm({ ...form, emergency_contact: e.target.value })
                 }
+                placeholder="Optional free text"
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">Emergency contact name</Label>
+              <Input
+                value={form.emergency_contact_name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    emergency_contact_name: e.target.value,
+                  })
+                }
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">Emergency contact phone</Label>
+              <Input
+                value={form.emergency_contact_phone}
+                maxLength={10}
+                inputMode="numeric"
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    emergency_contact_phone: e.target.value,
+                  })
+                }
+                placeholder="10-digit mobile"
               />
             </div>
             <div className="md:col-span-2">
@@ -309,8 +383,13 @@ export function PatientsManager() {
                                   gender: p.gender || "",
                                   address: p.address || "",
                                   medical_history: p.medical_history || "",
+                                  allergies: p.allergies || "",
                                   blood_group: p.blood_group || "",
                                   emergency_contact: p.emergency_contact || "",
+                                  emergency_contact_name:
+                                    p.emergency_contact_name || "",
+                                  emergency_contact_phone:
+                                    p.emergency_contact_phone || "",
                                   notes: p.notes || "",
                                   status: p.status,
                                 });

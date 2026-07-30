@@ -24,7 +24,7 @@ const values = [
   {
     icon: Users,
     title: "Community First",
-    desc: "Serving Badvel and surrounding regions with accessible specialist care.",
+    desc: "Serving local communities with accessible specialist care.",
   },
   {
     icon: ShieldCheck,
@@ -42,7 +42,7 @@ export function AboutContent() {
       <CmsPageBanner
         section="about"
         title={hospital.name}
-        subtitle="A center of excellence for respiratory medicine and critical care on Nellore Road, Badvel — dedicated to helping people breathe better and live healthier."
+        subtitle={`A center of excellence in ${hospital.address.city || "the community"}, dedicated to helping people live healthier.`}
       />
 
       <Section>
@@ -62,10 +62,9 @@ export function AboutContent() {
             <h2 className="text-3xl font-bold">Our Story</h2>
             <p className="mt-4 leading-relaxed text-muted-foreground">
               {hospital.name} was established to bring specialist pulmonology and
-              high-quality critical care closer to the people of Badvel and nearby
-              communities. Under the clinical leadership of Dr. Varaprasad Venkata
-              Sumanth, the hospital combines academic rigor with warm, patient-first
-              service.
+              high-quality critical care closer to local communities. Under
+              experienced clinical leadership, the hospital combines academic
+              rigor with warm, patient-first service.
             </p>
             <p className="mt-4 leading-relaxed text-muted-foreground">
               From asthma and COPD clinics to emergency respiratory care and video

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { format, addDays } from "date-fns";
 import toast from "react-hot-toast";
 import {
@@ -37,8 +37,7 @@ import {
 } from "@/lib/appointments/service";
 import {
   doctorWorksOnDate,
-  getBookingDepartments,
-  getBookingDoctors,
+  getBookingCatalog,
   getDayAvailability,
   groupSlotsByPeriod,
   type BookingDepartment,
@@ -135,21 +134,29 @@ export function AppointmentForm({
     setBackendLabel(isUsingSupabase() ? "supabase" : "local");
   }, []);
 
-  // Load departments once (+ package / deep-link prefs)
+  // Load departments + doctors in one request (no waterfall)
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setCatalogLoading(true);
       try {
-        const deps = await getBookingDepartments();
+        const { departments: deps, doctors: docs } = await getBookingCatalog();
         if (cancelled) return;
         setDepartments(deps);
+        setDoctors(docs);
         const preferred =
           (prefDepartment &&
             deps.find((d) => d.id === prefDepartment)?.id) ||
           deps[0]?.id ||
           "";
         if (preferred) setValue("departmentId", preferred);
+
+        const preferredDoctor =
+          (prefDoctor && docs.find((d) => d.id === prefDoctor)?.id) ||
+          docs[0]?.id ||
+          "";
+        if (preferredDoctor) setValue("doctorId", preferredDoctor);
+
         if (packageName) {
           setValue(
             "problem",
@@ -168,38 +175,51 @@ export function AppointmentForm({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefDepartment, packageName, packageSlug]);
+  }, [prefDepartment, prefDoctor, packageName, packageSlug]);
 
-  // Load doctors when department changes
+  // Filter doctors client-side when department changes (no extra network)
   useEffect(() => {
-    if (!selectedDepartmentId) return;
-    let cancelled = false;
+    if (!selectedDepartmentId || departments.length === 0) return;
+    // Re-fetch catalog filtered only if we don't have doctors for this dept
     void (async () => {
-      try {
-        const list = await getBookingDoctors(selectedDepartmentId);
-        if (cancelled) return;
-        setDoctors(list);
+      const list = doctors.filter(
+        (d) =>
+          !selectedDepartmentId ||
+          d.department_id === selectedDepartmentId ||
+          // legacy string ids
+          String(d.department_id) === String(selectedDepartmentId)
+      );
+      if (list.length > 0) {
         const preferredDoctor =
           (prefDoctor && list.find((d) => d.id === prefDoctor)?.id) ||
           (list.some((d) => d.id === selectedDoctorId)
             ? selectedDoctorId
             : list[0]?.id) ||
           "";
-        if (preferredDoctor !== selectedDoctorId) {
+        if (preferredDoctor && preferredDoctor !== selectedDoctorId) {
           setValue("doctorId", preferredDoctor);
           setValue("timeSlot", "");
         }
-      } catch (e) {
-        console.warn(e);
+        return;
+      }
+      // Rare: load filtered set from API
+      try {
+        const cat = await getBookingCatalog(selectedDepartmentId);
+        setDoctors((prev) => {
+          const merged = [...prev];
+          for (const d of cat.doctors) {
+            if (!merged.some((x) => x.id === d.id)) merged.push(d);
+          }
+          return merged;
+        });
+      } catch {
+        /* ignore */
       }
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDepartmentId]);
 
-  // Booked slots + leave when date/doctor change
+  // Booked slots + leave — ONE slots API call (not two sequential)
   const refreshSlots = useCallback(async () => {
     if (!selectedDate || !selectedDoctorId) {
       setBookedKeys([]);
@@ -213,6 +233,39 @@ export function AppointmentForm({
       setDayBlockReason("Doctor is not available on this weekday.");
       setBookedKeys([]);
       return;
+    }
+
+    try {
+      const qs = new URLSearchParams({
+        date: selectedDate,
+        doctorId: selectedDoctorId,
+      });
+      const res = await fetch(`/api/appointments/slots?${qs}`);
+      if (res.ok) {
+        const json = (await res.json()) as {
+          booked?: string[];
+          dayAvailable?: boolean;
+          dayStatus?: string;
+          dayNote?: string;
+        };
+        if (json.dayAvailable === false) {
+          setDayBlocked(true);
+          setDayBlockReason(
+            json.dayNote ||
+              `Doctor is marked as ${String(json.dayStatus || "unavailable").replace(/_/g, " ")}.`
+          );
+          setBookedKeys([]);
+          return;
+        }
+        setDayBlocked(false);
+        setDayBlockReason("");
+        setBookedKeys(
+          (json.booked || []).map((t) => `${selectedDate}|${t}`)
+        );
+        return;
+      }
+    } catch {
+      /* fall through */
     }
 
     const day = await getDayAvailability(selectedDoctorId, selectedDate);

@@ -14,6 +14,7 @@ import {
 } from "@/lib/payments/types";
 import { getDemoDashboard } from "@/lib/patient/service";
 import toast from "react-hot-toast";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 function statusVariant(
   status: string
@@ -25,6 +26,7 @@ function statusVariant(
 }
 
 export function PatientPaymentsPage() {
+  const { config } = useHospitalConfig();
   const [items, setItems] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const name = getDemoDashboard().patient?.full_name;
@@ -92,7 +94,7 @@ export function PatientPaymentsPage() {
           orderId,
           amountPaise,
           currency: p.currency || "INR",
-          name: "Sri Srinivasa Hospital",
+          name: config.branding.name,
           description: `Payment ${p.payment_reference}`,
           prefill: {
             name: String(meta.patient_name || ""),

@@ -25,7 +25,7 @@ const pillars = [
   {
     icon: Users,
     title: "Community trust",
-    desc: "Serving Badvel families with specialist access close to home.",
+    desc: "Serving local families with specialist access close to home.",
   },
 ];
 
@@ -76,7 +76,7 @@ export function AboutPreview() {
             About us
           </Badge>
           <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
-            Premium respiratory care in the heart of Badvel
+            Premium care close to home
           </h2>
           <p className="mt-4 leading-relaxed text-muted-foreground">
             {hospital.name} combines specialist pulmonology, critical care, and

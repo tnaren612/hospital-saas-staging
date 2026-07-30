@@ -33,7 +33,7 @@ jobs:
         run: npm run lint
 
       - name: TypeScript
-        run: npm run typecheck
+        run: npm run type-check
 
       - name: Unit & integration tests
         run: npm test
@@ -48,16 +48,63 @@ jobs:
           NEXT_PUBLIC_SITE_URL: https://sri-srinivasa-hospital.vercel.app
           NEXT_PUBLIC_USE_SUPABASE: "false"
 
-  # Optional: run Playwright only when secrets or browser cache available
-  # e2e:
-  #   needs: quality
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: "20"
-  #         cache: npm
-  #     - run: npm ci
-  #     - run: npx playwright install --with-deps chromium
-  #     - run: npm run test:e2e
+  e2e:
+    name: Credentialed staging regression
+    needs: quality
+    if: ${{ vars.RUN_STAGING_E2E == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build staging-connected application
+        run: npm run build
+        env: &staging-env
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+          NEXT_PUBLIC_USE_SUPABASE: "true"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_HOSPITAL_SLUG: hospital-alpha
+          HOSPITAL_HOST_MAP: '{"127.0.0.1":"hospital-alpha","localhost":"hospital-alpha"}'
+      - name: Full credentialed Playwright suite
+        run: npm run test:e2e
+        env:
+          <<: *staging-env
+          CI: "true"
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_WEB_SERVER_COMMAND: npm run start
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_DOCTOR_EMAIL: ${{ secrets.E2E_DOCTOR_EMAIL }}
+          E2E_DOCTOR_PASSWORD: ${{ secrets.E2E_DOCTOR_PASSWORD }}
+          E2E_PATIENT_EMAIL: ${{ secrets.E2E_PATIENT_EMAIL }}
+          E2E_PATIENT_PASSWORD: ${{ secrets.E2E_PATIENT_PASSWORD }}
+          E2E_LAB_EMAIL: ${{ secrets.E2E_LAB_EMAIL }}
+          E2E_LAB_PASSWORD: ${{ secrets.E2E_LAB_PASSWORD }}
+          E2E_PHARMACY_EMAIL: ${{ secrets.E2E_PHARMACY_EMAIL }}
+          E2E_PHARMACY_PASSWORD: ${{ secrets.E2E_PHARMACY_PASSWORD }}
+          E2E_RECEPTION_EMAIL: ${{ secrets.E2E_RECEPTION_EMAIL }}
+          E2E_RECEPTION_PASSWORD: ${{ secrets.E2E_RECEPTION_PASSWORD }}
+          E2E_BILLING_EMAIL: ${{ secrets.E2E_BILLING_EMAIL }}
+          E2E_BILLING_PASSWORD: ${{ secrets.E2E_BILLING_PASSWORD }}
+          E2E_FINANCE_EMAIL: ${{ secrets.E2E_FINANCE_EMAIL }}
+          E2E_FINANCE_PASSWORD: ${{ secrets.E2E_FINANCE_PASSWORD }}
+          E2E_HR_EMAIL: ${{ secrets.E2E_HR_EMAIL }}
+          E2E_HR_PASSWORD: ${{ secrets.E2E_HR_PASSWORD }}
+          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14

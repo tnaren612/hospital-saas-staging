@@ -6,24 +6,30 @@ import { TestimonialsPreview } from "@/components/home/testimonials-preview";
 import { CtaBanner } from "@/components/home/cta-banner";
 import { HomeExtras } from "@/components/home/home-extras";
 import { createMetadata } from "@/lib/seo";
+import { getHospitalConfig } from "@/lib/hospital/service";
+import type { Metadata } from "next";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 
-export const metadata = createMetadata({
-  title: undefined,
-  path: "/",
-  description:
-    "Sri Srinivasa Hospital, Badvel — specialist pulmonology, asthma, COPD, critical care, and 24×7 emergency respiratory care. Book appointments online.",
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const config = await getHospitalConfig();
+  return createMetadata({ path: "/", config });
+}
 
 export default function HomePage() {
   return (
-    <div className="page-enter">
-      <Hero />
-      <ServicesPreview />
-      <AboutPreview />
-      <DoctorPreview />
-      <HomeExtras />
-      <TestimonialsPreview />
-      <CtaBanner />
-    </div>
+    <CmsPageRenderer
+      pageKey="home"
+      fallback={
+        <div className="page-enter">
+          <Hero />
+          <ServicesPreview />
+          <AboutPreview />
+          <DoctorPreview />
+          <HomeExtras />
+          <TestimonialsPreview />
+          <CtaBanner />
+        </div>
+      }
+    />
   );
 }

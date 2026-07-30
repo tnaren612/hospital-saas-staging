@@ -12,9 +12,9 @@ import { WebVitalsReporter } from "@/components/analytics/web-vitals";
 import {
   createMetadata,
   hospitalJsonLd,
-  doctorJsonLd,
   medicalBusinessJsonLd,
 } from "@/lib/seo";
+import { getHospitalConfig } from "@/lib/hospital/service";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -30,19 +30,22 @@ const geistMono = localFont({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  ...createMetadata(),
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Sri Srinivasa Hospital",
-  },
-  icons: {
-    icon: "/favicon.ico",
-    apple: "/icons/icon-192.svg",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const config = await getHospitalConfig();
+  return {
+    ...createMetadata({ config }),
+    manifest: "/manifest.json",
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title: config.branding.name,
+    },
+    icons: {
+      icon: config.branding.favicon_url || "/favicon.ico",
+      apple: config.branding.logo_url || "/icons/icon-192.svg",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -54,11 +57,12 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const config = await getHospitalConfig();
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -67,19 +71,13 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(hospitalJsonLd()),
+            __html: JSON.stringify(hospitalJsonLd(config)),
           }}
         />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(doctorJsonLd()),
-          }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(medicalBusinessJsonLd()),
+            __html: JSON.stringify(medicalBusinessJsonLd(config)),
           }}
         />
       </head>

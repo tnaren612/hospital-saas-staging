@@ -129,7 +129,59 @@ function fallbackDoctors(): BookingDoctor[] {
   ];
 }
 
+/**
+ * Fast path: one cached API call returns departments + doctors (server parallel).
+ * Falls back to direct Supabase / JSON if API fails.
+ */
+export async function getBookingCatalog(departmentId?: string | null): Promise<{
+  departments: BookingDepartment[];
+  doctors: BookingDoctor[];
+}> {
+  const depKey = departmentId || "";
+  if (deptCache && Date.now() - deptCache.at < CACHE_TTL_MS && !depKey) {
+    const hit = doctorCache.get("__all__");
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+      return { departments: deptCache.data, doctors: hit.data };
+    }
+  }
+
+  try {
+    const qs = depKey ? `?departmentId=${encodeURIComponent(depKey)}` : "";
+    const res = await fetch(`/api/appointments/catalog${qs}`, {
+      // Allow browser HTTP cache (API sets Cache-Control)
+      next: { revalidate: 60 },
+    } as RequestInit);
+    if (res.ok) {
+      const json = (await res.json()) as {
+        departments?: BookingDepartment[];
+        doctors?: BookingDoctor[];
+      };
+      const departments = json.departments?.length
+        ? json.departments
+        : fallbackDepartments();
+      const doctors = json.doctors?.length ? json.doctors : fallbackDoctors();
+      deptCache = { at: Date.now(), data: departments };
+      doctorCache.set(depKey || "__all__", { at: Date.now(), data: doctors });
+      return { departments, doctors };
+    }
+  } catch {
+    /* fall through */
+  }
+
+  // Fallback: parallel direct client reads
+  const [departments, doctors] = await Promise.all([
+    getBookingDepartmentsDirect(),
+    getBookingDoctorsDirect(departmentId),
+  ]);
+  return { departments, doctors };
+}
+
 export async function getBookingDepartments(): Promise<BookingDepartment[]> {
+  const { departments } = await getBookingCatalog();
+  return departments;
+}
+
+async function getBookingDepartmentsDirect(): Promise<BookingDepartment[]> {
   if (deptCache && Date.now() - deptCache.at < CACHE_TTL_MS) {
     return deptCache.data;
   }
@@ -157,7 +209,7 @@ export async function getBookingDepartments(): Promise<BookingDepartment[]> {
     return fallbackDepartments();
   }
 
-  const rows = data.map((r) => ({
+  const rows = data.map((r: Record<string, unknown>) => ({
     id: String(r.id),
     name: String(r.name),
     slug: String(r.slug),
@@ -168,6 +220,13 @@ export async function getBookingDepartments(): Promise<BookingDepartment[]> {
 }
 
 export async function getBookingDoctors(
+  departmentId?: string | null
+): Promise<BookingDoctor[]> {
+  const { doctors } = await getBookingCatalog(departmentId);
+  return doctors;
+}
+
+async function getBookingDoctorsDirect(
   departmentId?: string | null
 ): Promise<BookingDoctor[]> {
   const cacheKey = departmentId || "__all__";
@@ -216,7 +275,7 @@ export async function getBookingDoctors(
       : all.filter((d) => d.department_id === departmentId);
   }
 
-  const rows = data.map((r) => {
+  const rows = data.map((r: Record<string, unknown>) => {
     const dept = r.departments as { name?: string } | null;
     return {
       id: String(r.id),
@@ -242,14 +301,32 @@ export async function getBookingDoctors(
   return rows;
 }
 
-/** Check leave / holiday for a hospital_doctors uuid. */
+/** Check leave / holiday — prefer slots API (bundled with booked times). */
 export async function getDayAvailability(
   doctorId: string,
   date: string
 ): Promise<DayAvailability> {
-  // Non-uuid (legacy dr-varaprasad) — always available weekdays via available_days
   if (!isSupabaseBackendEnabled() || doctorId.length !== 36) {
     return { available: true, status: "available", note: "" };
+  }
+
+  try {
+    const qs = new URLSearchParams({ date, doctorId });
+    const res = await fetch(`/api/appointments/slots?${qs}`);
+    if (res.ok) {
+      const json = (await res.json()) as {
+        dayAvailable?: boolean;
+        dayStatus?: string;
+        dayNote?: string;
+      };
+      return {
+        available: json.dayAvailable !== false,
+        status: (json.dayStatus as DayAvailability["status"]) || "available",
+        note: json.dayNote || "",
+      };
+    }
+  } catch {
+    /* fall through */
   }
 
   const supabase = createClientOrNull();

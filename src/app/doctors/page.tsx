@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = createMetadata({
   title: "Our Doctors",
   description:
-    "Meet the medical specialists at Sri Srinivasa Hospital, Badvel — pulmonology, critical care, and more. Book appointments online.",
+    "Meet available medical specialists and book appointments online.",
   path: "/doctors",
 });
 

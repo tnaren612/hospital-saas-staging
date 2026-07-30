@@ -1,0 +1,25 @@
+"use client";
+import {useCallback,useEffect,useState} from "react";
+import toast from "react-hot-toast";
+import {Button} from "@/components/ui/button";
+import {Card,CardContent} from "@/components/ui/card";
+import {Label} from "@/components/ui/label";
+import {Textarea} from "@/components/ui/textarea";
+import {WardAdmin} from "@/components/ipd/ward-admin";
+type Patient={id:string;full_name:string;phone:string};
+type Bed={id:string;bed_number:string;status:string;ipd_wards?:{name:string}};
+type Admission={id:string;admission_number:string;status:string;reason:string;bed_id:string;hospital_patients?:{full_name:string};ipd_beds?:{bed_number:string}};
+export function IpdWorkspace(){
+ const [patients,setPatients]=useState<Patient[]>([]),[beds,setBeds]=useState<Bed[]>([]),[admissions,setAdmissions]=useState<Admission[]>([]);
+ const [census,setCensus]=useState({active:0,available:0,occupied:0});
+ const [form,setForm]=useState({patient_id:"",bed_id:"",reason:"",provisional_diagnosis:""});
+ const load=useCallback(async()=>{const [p,i]=await Promise.all([fetch("/api/admin/patients"),fetch("/api/ipd")]);const pj=await p.json(),ij=await i.json();if(p.ok)setPatients(pj.data||[]);if(i.ok){setBeds(ij.data.beds||[]);setAdmissions(ij.data.admissions||[]);setCensus(ij.data.census)}},[]);
+ useEffect(()=>{void load()},[load]);
+ const admit=async()=>{const r=await fetch("/api/ipd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...form,admission_type:"planned",care_notes:""})});const j=await r.json();if(!r.ok)return toast.error(j.error||"Admission failed");toast.success("Patient admitted");setForm({patient_id:"",bed_id:"",reason:"",provisional_diagnosis:""});await load()};
+ const action=async(id:string,body:Record<string,unknown>)=>{const r=await fetch(`/api/ipd/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)return toast.error(j.error||"Update failed");toast.success("IPD updated");await load()};
+ return <div className="space-y-6"><div className="flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-bold">Inpatient Department</h1><p className="text-sm text-muted-foreground">Admission, beds, transfers, census and discharge.</p></div><Button variant="outline" asChild><a href="/api/ipd/report">Export census CSV</a></Button></div>
+ <div className="grid grid-cols-3 gap-3">{Object.entries(census).map(([k,v])=><Card key={k}><CardContent className="p-4"><p className="text-xs capitalize text-muted-foreground">{k}</p><p className="text-2xl font-bold">{v}</p></CardContent></Card>)}</div>
+ <WardAdmin/>
+ <Card><CardContent className="grid gap-4 p-5 md:grid-cols-2"><div><Label>Patient</Label><select aria-label="IPD patient" className="mt-1 h-11 w-full rounded-xl border bg-background px-3" value={form.patient_id} onChange={e=>setForm({...form,patient_id:e.target.value})}><option value="">Select</option>{patients.map(p=><option key={p.id} value={p.id}>{p.full_name} · {p.phone}</option>)}</select></div><div><Label>Available bed</Label><select aria-label="IPD bed" className="mt-1 h-11 w-full rounded-xl border bg-background px-3" value={form.bed_id} onChange={e=>setForm({...form,bed_id:e.target.value})}><option value="">Select</option>{beds.filter(b=>b.status==="available").map(b=><option key={b.id} value={b.id}>{b.bed_number} · {b.ipd_wards?.name}</option>)}</select></div><div><Label>Admission reason</Label><Textarea value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})}/></div><div><Label>Provisional diagnosis</Label><Textarea value={form.provisional_diagnosis} onChange={e=>setForm({...form,provisional_diagnosis:e.target.value})}/></div><Button onClick={()=>void admit()} disabled={!form.patient_id||!form.bed_id||!form.reason}>Admit patient</Button></CardContent></Card>
+ <div className="space-y-3">{admissions.map(a=><Card key={a.id}><CardContent className="p-5"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-bold">{a.admission_number} · {a.hospital_patients?.full_name}</p><p className="text-sm text-muted-foreground">{a.ipd_beds?.bed_number} · {a.status} · {a.reason}</p></div>{!["discharged","cancelled"].includes(a.status)&&<div className="flex flex-wrap gap-2"><select aria-label={`Transfer bed ${a.admission_number}`} className="h-9 rounded-lg border bg-background px-2" onChange={e=>e.target.value&&void action(a.id,{action:"transfer",bed_id:e.target.value})}><option value="">Transfer bed</option>{beds.filter(b=>b.status==="available").map(b=><option key={b.id} value={b.id}>{b.bed_number}</option>)}</select><Button size="sm" variant="outline" onClick={()=>void action(a.id,{action:"plan_discharge",expected_discharge_date:new Date().toISOString().slice(0,10)})}>Plan discharge</Button><Button size="sm" onClick={()=>void action(a.id,{action:"discharge",discharge_summary:"Patient clinically stable for discharge.",discharge_instructions:"Continue medicines and return for follow-up."})}>Discharge</Button></div>}</div></CardContent></Card>)}</div></div>
+}

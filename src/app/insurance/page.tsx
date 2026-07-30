@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import { InsuranceContent } from "@/components/pages/insurance-content";
 import { createMetadata } from "@/lib/seo";
+import { CmsPageRenderer } from "@/components/cms/cms-page-renderer";
 
 export const metadata: Metadata = createMetadata({
   title: "Insurance",
-  description: "Insurance partners and cashless facilitation support at Sri Srinivasa Hospital, Badvel.",
+  description: "Insurance partners and cashless facilitation information.",
   path: "/insurance",
 });
 
 export default function InsurancePage() {
-  return <InsuranceContent />;
+  return <CmsPageRenderer pageKey="insurance" fallback={<InsuranceContent />} />;
 }

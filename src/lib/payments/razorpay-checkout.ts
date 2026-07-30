@@ -84,7 +84,7 @@ export async function openRazorpayCheckout(
       key: input.key,
       amount: input.amountPaise,
       currency: input.currency || "INR",
-      name: input.name || "Sri Srinivasa Hospital",
+      name: input.name || "Hospital",
       description: input.description || "Hospital payment",
       order_id: input.orderId,
       prefill: {

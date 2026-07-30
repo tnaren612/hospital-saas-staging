@@ -21,10 +21,12 @@ export async function GET(request: Request) {
   const lower = q.toLowerCase();
   const results: SearchResultGroup[] = [];
 
-  const safe = async (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    fn: () => PromiseLike<{ data: any; error: { message: string } | null }>
-  ) => {
+  const safe = async <T,>(
+    fn: () => PromiseLike<{
+      data: T[] | null;
+      error: { message: string } | null;
+    }>
+  ): Promise<T[]> => {
     try {
       const res = await fn();
       if (res.error) return [];

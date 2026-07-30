@@ -1,22 +1,43 @@
 import { NextResponse } from "next/server";
 import { getSupabaseUrl, getServiceRoleKey } from "@/lib/supabase/env";
 import { getAllProviderStatuses } from "@/lib/providers/config";
+import { requireHmsAdmin } from "@/lib/hms/server";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/health
- * Lightweight readiness probe for Vercel / uptime monitors.
- * Does not expose secrets.
+ * H-11: Public probe returns minimal ok only.
+ * ?deep=1 requires staff session for provider recon details.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const deep = new URL(request.url).searchParams.get("deep") === "1";
+
+  if (!deep) {
+    return NextResponse.json(
+      {
+        ok: true,
+        service: "hospital-erp",
+        timestamp: new Date().toISOString(),
+      },
+      {
+        status: 200,
+        headers: { "Cache-Control": "no-store" },
+      }
+    );
+  }
+
+  // Deep health — staff only
+  const gate = await requireHmsAdmin();
+  if (gate.error) return gate.error;
+
   const supabaseUrl = Boolean(getSupabaseUrl());
   const serviceRole = Boolean(getServiceRoleKey());
   const providers = getAllProviderStatuses();
 
   const body = {
     ok: true,
-    service: "sri-srinivasa-hospital",
+    service: "hospital-erp",
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || "1.0.0",
     env: process.env.VERCEL_ENV || process.env.NODE_ENV || "development",

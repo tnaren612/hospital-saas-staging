@@ -40,6 +40,7 @@ import {
 import { completePaymentSuccess, markPaymentFailed } from "@/lib/payments/completion";
 import { writePaymentAudit } from "@/lib/payments/audit";
 import { paymentLog } from "@/lib/payments/logger";
+import { allowMockPayments } from "@/lib/payments/production-guard";
 
 function serviceClient() {
   const url = getSupabaseUrl();
@@ -48,6 +49,78 @@ function serviceClient() {
   return createSupabaseJs(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+type ServiceClient = NonNullable<ReturnType<typeof serviceClient>>;
+
+/** C-05: prefer doctor consultation_fee over client-supplied amount */
+async function resolveAmountFromAppointment(
+  sb: ServiceClient,
+  appointmentId: string
+): Promise<number | null> {
+  try {
+    const { data: appt } = await sb
+      .from("appointments")
+      .select("doctor_id, consultation_fee, type")
+      .eq("id", appointmentId)
+      .maybeSingle();
+    if (!appt) return null;
+    const direct = Number(
+      (appt as { consultation_fee?: number }).consultation_fee
+    );
+    if (Number.isFinite(direct) && direct > 0) return direct;
+
+    const doctorId = String(
+      (appt as { doctor_id?: string }).doctor_id || ""
+    );
+    if (!doctorId) return null;
+
+    const { data: doc } = await sb
+      .from("hospital_doctors")
+      .select("consultation_fee, video_consultation_fee")
+      .or(`id.eq.${doctorId},slug.eq.${doctorId}`)
+      .maybeSingle();
+    if (!doc) return null;
+    const type = String((appt as { type?: string }).type || "");
+    if (type === "video" || type === "teleconsult") {
+      const v = Number(
+        (doc as { video_consultation_fee?: number }).video_consultation_fee
+      );
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+    const fee = Number(
+      (doc as { consultation_fee?: number }).consultation_fee
+    );
+    return Number.isFinite(fee) && fee > 0 ? fee : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAmountFromPackage(
+  sb: ServiceClient,
+  packageId: string
+): Promise<number | null> {
+  try {
+    const { data } = await sb
+      .from("health_packages")
+      .select("price, amount, sale_price")
+      .or(`id.eq.${packageId},slug.eq.${packageId}`)
+      .maybeSingle();
+    if (!data) return null;
+    const row = data as {
+      sale_price?: number;
+      price?: number;
+      amount?: number;
+    };
+    for (const key of [row.sale_price, row.price, row.amount]) {
+      const n = Number(key);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function publicClient() {
@@ -234,7 +307,7 @@ export async function updatePaymentSettings(
 }
 
 export async function createInvoice(
-  input: CreatePaymentInput,
+  input: CreatePaymentInput & { hospitalId?: string | null },
   settings?: PaymentSettings
 ): Promise<{ ok: boolean; invoice?: InvoiceRecord; error?: string }> {
   const sb = serviceClient();
@@ -265,28 +338,31 @@ export async function createInvoice(
       amount: input.amount,
     });
 
+  const invoiceInsert: Record<string, unknown> = {
+    invoice_number,
+    patient_id: input.patient_id || null,
+    patient_name: input.patient_name,
+    patient_phone: input.patient_phone,
+    patient_email: input.patient_email || "",
+    appointment_id: input.appointment_id || null,
+    package_id: input.package_id || null,
+    package_name: input.package_name || "",
+    doctor_name: input.doctor_name || "",
+    department_name: input.department_name || "",
+    subtotal,
+    discount,
+    tax,
+    grand_total: total,
+    currency: cfg.currency,
+    status: "issued",
+    line_items,
+    notes: input.notes || "",
+  };
+  if (input.hospitalId) invoiceInsert.hospital_id = input.hospitalId;
+
   const { data, error } = await sb
     .from("invoices")
-    .insert({
-      invoice_number,
-      patient_id: input.patient_id || null,
-      patient_name: input.patient_name,
-      patient_phone: input.patient_phone,
-      patient_email: input.patient_email || "",
-      appointment_id: input.appointment_id || null,
-      package_id: input.package_id || null,
-      package_name: input.package_name || "",
-      doctor_name: input.doctor_name || "",
-      department_name: input.department_name || "",
-      subtotal,
-      discount,
-      tax,
-      grand_total: total,
-      currency: cfg.currency,
-      status: "issued",
-      line_items,
-      notes: input.notes || "",
-    })
+    .insert(invoiceInsert)
     .select("*")
     .single();
 
@@ -298,7 +374,12 @@ export async function createInvoice(
 }
 
 export async function createPayment(
-  input: CreatePaymentInput
+  input: CreatePaymentInput & {
+    /** C-05: cash → paid only when staff authorized */
+    staffAuthorized?: boolean;
+    /** Optional tenant stamp */
+    hospitalId?: string | null;
+  }
 ): Promise<{
   ok: boolean;
   payment?: PaymentRecord;
@@ -323,7 +404,45 @@ export async function createPayment(
     return { ok: false, error: "Online payments are disabled" };
   }
 
-  const inv = await createInvoice(input, settings);
+  // C-05: unauthenticated cash must never mark paid
+  if (input.payment_method === "cash" && !input.staffAuthorized) {
+    return {
+      ok: false,
+      error: "Cash payments require staff authentication",
+      code: "CASH_STAFF_REQUIRED",
+    } as { ok: false; error: string };
+  }
+
+  // C-05: resolve amount from server sources when possible
+  let resolvedAmount = Number(input.amount);
+  if (input.appointment_id) {
+    const serverAmount = await resolveAmountFromAppointment(
+      sb,
+      input.appointment_id
+    );
+    if (serverAmount != null && serverAmount > 0) {
+      resolvedAmount = serverAmount;
+    }
+  } else if (input.package_id) {
+    const serverAmount = await resolveAmountFromPackage(sb, input.package_id);
+    if (serverAmount != null && serverAmount > 0) {
+      resolvedAmount = serverAmount;
+    }
+  }
+
+  if (!Number.isFinite(resolvedAmount) || resolvedAmount < 0) {
+    return { ok: false, error: "Invalid payment amount" };
+  }
+
+  const paymentInput: CreatePaymentInput = {
+    ...input,
+    amount: resolvedAmount,
+  };
+
+  const inv = await createInvoice(
+    { ...paymentInput, hospitalId: input.hospitalId },
+    settings
+  );
   if (!inv.ok || !inv.invoice) {
     return { ok: false, error: inv.error || "Invoice failed" };
   }
@@ -331,7 +450,7 @@ export async function createPayment(
   const payment_reference = ref("PAY");
   const discount = Number(input.discount || 0);
   const { subtotal, tax, total } = calcTax(
-    input.amount,
+    resolvedAmount,
     discount,
     settings.tax_percentage
   );
@@ -344,14 +463,20 @@ export async function createPayment(
       provider = "razorpay";
     } else if (settings.stripe_enabled) {
       provider = "stripe";
-    } else {
+    } else if (allowMockPayments()) {
       provider = "mock";
+    } else {
+      return {
+        ok: false,
+        error:
+          "Online payments require Razorpay or Stripe configuration in production",
+      };
     }
   }
 
   const isCash = input.payment_method === "cash";
   // Online stays pending until HMAC / gateway verify succeeds
-  // Cash is marked paid immediately (canonical status)
+  // Cash is marked paid immediately only for authorized staff
   const payment_status: PaymentStatus = isCash ? "paid" : "pending";
 
   let gateway: GatewayOrderResult | undefined;
@@ -375,8 +500,14 @@ export async function createPayment(
             reference: payment_reference,
           },
         });
-        // createRazorpayOrder returns "mock" when keys missing
+        // createRazorpayOrder returns "mock" when keys missing (dev only)
         provider = gateway.provider;
+        if (gateway.provider === "mock" && !allowMockPayments()) {
+          return {
+            ok: false,
+            error: "Mock payments are disabled in production",
+          };
+        }
         if (gateway.name !== settings.hospital_name) {
           gateway = {
             ...gateway,
@@ -395,7 +526,7 @@ export async function createPayment(
           description: input.package_name || "Hospital payment",
         });
         provider = gateway.provider;
-      } else {
+      } else if (allowMockPayments()) {
         gateway = {
           provider: "mock",
           orderId: `order_mock_${Date.now()}`,
@@ -413,6 +544,11 @@ export async function createPayment(
           checkoutHint: "Mock online payment — complete via verify endpoint",
         };
         provider = "mock";
+      } else {
+        return {
+          ok: false,
+          error: "No payment gateway configured for production",
+        };
       }
     } catch (e) {
       return {
@@ -422,36 +558,46 @@ export async function createPayment(
     }
   }
 
+  const paymentInsert: Record<string, unknown> = {
+    payment_reference,
+    appointment_id: input.appointment_id || null,
+    package_id: input.package_id || null,
+    patient_id: input.patient_id || null,
+    invoice_id: inv.invoice.id,
+    amount: subtotal,
+    discount,
+    tax,
+    total_amount: total,
+    currency: settings.currency,
+    payment_method: input.payment_method,
+    payment_provider: provider,
+    // Store Razorpay order_id here until payment_id replaces it after verify
+    transaction_id: gateway?.orderId || "",
+    payment_status,
+    paid_at: isCash ? new Date().toISOString() : null,
+    meta: {
+      razorpay_order_id: gateway?.orderId || null,
+      amount_paise: gateway?.amountPaise ?? Math.round(total * 100),
+      patient_name: input.patient_name,
+      patient_phone: input.patient_phone,
+      patient_email: input.patient_email || "",
+      doctor_name: input.doctor_name || "",
+      department_name: input.department_name || "",
+      amount_source:
+        input.appointment_id || input.package_id
+          ? "server_resolved"
+          : "client",
+      staff_cash: isCash && Boolean(input.staffAuthorized),
+      // Never store KEY_SECRET or card data
+    },
+  };
+  if (input.hospitalId) {
+    paymentInsert.hospital_id = input.hospitalId;
+  }
+
   const { data, error } = await sb
     .from("payments")
-    .insert({
-      payment_reference,
-      appointment_id: input.appointment_id || null,
-      package_id: input.package_id || null,
-      patient_id: input.patient_id || null,
-      invoice_id: inv.invoice.id,
-      amount: subtotal,
-      discount,
-      tax,
-      total_amount: total,
-      currency: settings.currency,
-      payment_method: input.payment_method,
-      payment_provider: provider,
-      // Store Razorpay order_id here until payment_id replaces it after verify
-      transaction_id: gateway?.orderId || "",
-      payment_status,
-      paid_at: isCash ? new Date().toISOString() : null,
-      meta: {
-        razorpay_order_id: gateway?.orderId || null,
-        amount_paise: gateway?.amountPaise ?? Math.round(total * 100),
-        patient_name: input.patient_name,
-        patient_phone: input.patient_phone,
-        patient_email: input.patient_email || "",
-        doctor_name: input.doctor_name || "",
-        department_name: input.department_name || "",
-        // Never store KEY_SECRET or card data
-      },
-    })
+    .insert(paymentInsert)
     .select("*")
     .single();
 
@@ -624,6 +770,13 @@ export async function verifyPayment(
     verified = v.paid;
     if (v.paymentIntent) transaction_id = v.paymentIntent;
   } else if (provider === "mock" || mapped.payment_provider === "mock") {
+    // C-04: mock verification disabled in production
+    if (!allowMockPayments()) {
+      return {
+        ok: false,
+        error: "Mock payment verification is disabled in production",
+      };
+    }
     verified =
       input.transaction_id?.startsWith("pay_mock") ||
       input.razorpay_payment_id?.startsWith("pay_mock") ||
@@ -872,6 +1025,10 @@ export async function listPayments(options?: {
   q?: string;
   status?: string;
   limit?: number;
+  hospitalId?: string | null;
+  /** H-02: server-side patient scope — never list-all then filter */
+  patientId?: string | null;
+  patientPhone?: string | null;
 }): Promise<PaymentRecord[]> {
   const sb = serviceClient() || publicClient();
   if (!sb) return [];
@@ -883,11 +1040,28 @@ export async function listPayments(options?: {
     .limit(options?.limit || 100);
 
   if (options?.status) query = query.eq("payment_status", options.status);
+  if (options?.hospitalId) query = query.eq("hospital_id", options.hospitalId);
+  if (options?.patientId) query = query.eq("patient_id", options.patientId);
+  // H-02: phone scope via meta JSON — server-side, not list-all
+  if (options?.patientPhone && !options?.patientId) {
+    const phone = options.patientPhone.replace(/\D/g, "").slice(-10);
+    const raw = options.patientPhone;
+    query = query.or(
+      `meta->>patient_phone.eq.${raw},meta->>patient_phone.eq.${phone}`
+    );
+  }
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    // Retry without hospital_id if column missing pre-migration
+    if (/hospital_id|column/i.test(error.message) && options?.hospitalId) {
+      return listPayments({ ...options, hospitalId: undefined });
+    }
+    return [];
+  }
 
   let rows = (data || []).map((r) => mapPayment(r as Record<string, unknown>));
+
   if (options?.q) {
     const q = options.q.toLowerCase();
     rows = rows.filter(
@@ -903,6 +1077,7 @@ export async function listPayments(options?: {
 export async function listInvoices(options?: {
   patient_phone?: string;
   limit?: number;
+  hospitalId?: string | null;
 }): Promise<InvoiceRecord[]> {
   const sb = serviceClient() || publicClient();
   if (!sb) return [];
@@ -916,9 +1091,15 @@ export async function listInvoices(options?: {
   if (options?.patient_phone) {
     query = query.eq("patient_phone", options.patient_phone);
   }
+  if (options?.hospitalId) query = query.eq("hospital_id", options.hospitalId);
 
   const { data, error } = await query;
-  if (error) return [];
+  if (error) {
+    if (/hospital_id|column/i.test(error.message) && options?.hospitalId) {
+      return listInvoices({ ...options, hospitalId: undefined });
+    }
+    return [];
+  }
   return (data || []).map((r) => mapInvoice(r as Record<string, unknown>));
 }
 
@@ -946,7 +1127,9 @@ export async function downloadInvoiceHtml(
   return { ok: true, html, invoice };
 }
 
-export async function getRevenue(): Promise<{
+export async function getRevenue(options?: {
+  hospitalId?: string | null;
+}): Promise<{
   today: number;
   month: number;
   pending: number;
@@ -954,7 +1137,7 @@ export async function getRevenue(): Promise<{
   refunds: number;
   byProvider: { name: string; value: number }[];
 }> {
-  const analytics = await getPaymentAnalytics();
+  const analytics = await getPaymentAnalytics(options);
   return {
     today: analytics.today,
     month: analytics.month,
@@ -965,8 +1148,13 @@ export async function getRevenue(): Promise<{
   };
 }
 
-export async function getPaymentAnalytics(): Promise<PaymentAnalytics> {
-  const payments = await listPayments({ limit: 2000 });
+export async function getPaymentAnalytics(options?: {
+  hospitalId?: string | null;
+}): Promise<PaymentAnalytics> {
+  const payments = await listPayments({
+    limit: 2000,
+    hospitalId: options?.hospitalId,
+  });
   const today = new Date().toISOString().slice(0, 10);
   const month = today.slice(0, 7);
 

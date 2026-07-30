@@ -3,7 +3,6 @@
  * Priority: Supabase CMS → localStorage CMS → static JSON defaults.
  */
 
-import testimonialsJson from "@/data/testimonials.json";
 import type { Testimonial } from "@/types";
 import { getPatientAvatar } from "@/lib/assets/production-catalog";
 import {
@@ -31,21 +30,6 @@ function mapRemote(row: Record<string, unknown>): Testimonial {
     featured: Boolean(row.featured),
     published: row.published !== false,
   };
-}
-
-function defaults(): Testimonial[] {
-  return (testimonialsJson as Testimonial[]).map((t, i) => ({
-    ...t,
-    published: t.published !== false,
-    featured: Boolean(t.featured),
-    treatment: t.treatment || t.role,
-    image:
-      t.image?.startsWith("http") || t.image?.endsWith(".svg")
-        ? t.image.startsWith("http")
-          ? t.image
-          : getPatientAvatar(i)
-        : getPatientAvatar(i),
-  }));
 }
 
 function readCms(): Testimonial[] | null {
@@ -97,7 +81,7 @@ export async function fetchTestimonialsFromSupabase(): Promise<
 /** Sync helpers used by client components */
 export function getPublishedTestimonials(): Testimonial[] {
   const cms = readCms();
-  const all = cms && cms.length ? cms : defaults();
+  const all = cms && cms.length ? cms : [];
   return all
     .filter((t) => t.published !== false)
     .sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -113,7 +97,7 @@ export function getFeaturedTestimonials(limit = 6): Testimonial[] {
 export function getAllTestimonials(): Testimonial[] {
   const cms = readCms();
   if (cms && cms.length > 0) return cms;
-  return defaults();
+  return [];
 }
 
 export function saveAllTestimonials(items: Testimonial[]): void {

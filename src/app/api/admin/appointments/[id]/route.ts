@@ -1,70 +1,54 @@
 /**
  * PATCH /api/admin/appointments/[id]
- * Body:
- *  - { status }                    → update status (cancel / confirm / complete)
- *  - { date, timeSlot }            → reschedule (conflict-checked)
- *  - combination allowed
+ * Body: status | date+timeSlot (reschedule) | check_in | cancel_reason | notes
  */
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { z } from "zod";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { getAdminSession, isAdminAuthEnabled } from "@/lib/auth/admin";
 import { mapDbAppointment } from "@/lib/admin/appointments";
 import { updateAppointment } from "@/lib/storage";
 import { createNotification } from "@/lib/hms/server";
-import type { TimePeriod } from "@/types";
+import {
+  adminAppointmentPatchSchema,
+  resolvePeriod,
+  isSlotFreeingStatus,
+} from "@/lib/appointments/validation";
+import { writeAuthEvent } from "@/lib/auth/audit";
+import { canAccessFeature, isAdmin } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
-  status: z
-    .enum(["pending", "confirmed", "completed", "cancelled", "upcoming"])
-    .optional(),
-  date: z.string().min(8).optional(),
-  timeSlot: z.string().min(1).optional(),
-  notes: z.string().max(1000).optional(),
-});
-
-function resolvePeriod(timeSlot: string): TimePeriod {
-  const hour = parseInt(timeSlot, 10);
-  const isPm = /PM/i.test(timeSlot);
-  const hour24 =
-    isPm && hour !== 12 ? hour + 12 : !isPm && hour === 12 ? 0 : hour;
-  if (hour24 < 12) return "morning";
-  if (hour24 < 17) return "afternoon";
-  return "evening";
-}
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const id = params.id;
 
-  let payload: z.infer<typeof bodySchema>;
-  try {
-    payload = bodySchema.parse(await request.json());
-  } catch {
-    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
-  }
-
-  if (!payload.status && !payload.date && !payload.timeSlot && !payload.notes) {
+  const parsed = adminAppointmentPatchSchema.safeParse(
+    await request.json().catch(() => ({}))
+  );
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "No changes provided" },
+      {
+        error: parsed.error.flatten().formErrors[0] || "Invalid body",
+      },
       { status: 400 }
     );
   }
+  const payload = parsed.data;
 
   if (!(isAdminAuthEnabled() && hasSupabaseConfig())) {
-    const demo = cookies().get("ssh_admin_demo")?.value === "1";
+    const demo = (await cookies()).get("ssh_admin_demo")?.value === "1";
     if (!demo) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const patch: Record<string, unknown> = {};
     if (payload.status) patch.status = payload.status;
+    if (payload.check_in) {
+      patch.status = "checked_in";
+      patch.checkedInAt = new Date().toISOString();
+    }
     if (payload.date) patch.date = payload.date;
     if (payload.timeSlot) {
       patch.timeSlot = payload.timeSlot;
@@ -82,9 +66,13 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const role = session.profile.role;
+  if (!canAccessFeature(role, "appointments") && !isAdmin(role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
 
     const { data: current, error: curErr } = await supabase
       .from("appointments")
@@ -107,8 +95,8 @@ export async function PATCH(
         .eq("doctor_id", current.doctor_id)
         .eq("date", nextDate)
         .eq("time_slot", nextSlot)
-        .neq("status", "cancelled")
         .neq("id", id)
+        .not("status", "in", '("cancelled","no_show")')
         .maybeSingle();
 
       if (conflict) {
@@ -147,19 +135,60 @@ export async function PATCH(
 
     const updateBody: Record<string, unknown> = {};
     if (payload.status) updateBody.status = payload.status;
+    if (payload.check_in) {
+      updateBody.status = "checked_in";
+      updateBody.checked_in_at = new Date().toISOString();
+    }
     if (payload.date) updateBody.date = payload.date;
     if (payload.timeSlot) {
       updateBody.time_slot = payload.timeSlot;
       updateBody.period = resolvePeriod(payload.timeSlot);
     }
     if (payload.notes !== undefined) updateBody.notes = payload.notes;
+    if (payload.cancel_reason !== undefined) {
+      updateBody.cancel_reason = payload.cancel_reason;
+    }
+    if (payload.status === "cancelled" || payload.status === "no_show") {
+      updateBody.cancelled_at = new Date().toISOString();
+      if (payload.status === "cancelled" && payload.cancel_reason) {
+        updateBody.cancel_reason = payload.cancel_reason;
+      }
+    }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("appointments")
       .update(updateBody)
       .eq("id", id)
       .select()
       .single();
+
+    // Graceful if new columns missing
+    if (error && /column|schema cache|checked_in|cancel_reason|no_show/i.test(error.message)) {
+      const legacy: Record<string, unknown> = {};
+      if (payload.status && !["no_show", "checked_in"].includes(payload.status)) {
+        legacy.status = payload.status;
+      } else if (payload.check_in) {
+        legacy.status = "confirmed";
+      } else if (payload.status === "checked_in") {
+        legacy.status = "confirmed";
+      } else if (payload.status === "no_show") {
+        legacy.status = "cancelled";
+      }
+      if (payload.date) legacy.date = payload.date;
+      if (payload.timeSlot) {
+        legacy.time_slot = payload.timeSlot;
+        legacy.period = resolvePeriod(payload.timeSlot);
+      }
+      if (payload.notes !== undefined) legacy.notes = payload.notes;
+      const retry = await supabase
+        .from("appointments")
+        .update(legacy)
+        .eq("id", id)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       if (error.code === "23505") {
@@ -172,9 +201,9 @@ export async function PATCH(
     }
 
     const type =
-      payload.status === "cancelled"
+      data.status === "cancelled"
         ? "appointment_cancelled"
-        : payload.status === "confirmed"
+        : data.status === "confirmed"
           ? "appointment_confirmed"
           : payload.date || payload.timeSlot
             ? "appointment_reminder"
@@ -183,15 +212,37 @@ export async function PATCH(
     await createNotification(supabase, {
       type,
       title:
-        payload.date || payload.timeSlot
-          ? "Appointment rescheduled"
-          : `Appointment ${payload.status || "updated"}`,
-      message: `${data.patient_name} · ${data.date} ${data.time_slot}`,
+        payload.check_in
+          ? "Patient checked in"
+          : payload.date || payload.timeSlot
+            ? "Appointment rescheduled"
+            : `Appointment ${data.status || "updated"}`,
+      message: `${data.patient_name} · ${data.date} ${data.time_slot}${
+        data.queue_token ? ` · Token #${data.queue_token}` : ""
+      }`,
       meta: {
         appointment_id: id,
         status: data.status,
         date: data.date,
         time_slot: data.time_slot,
+        queue_token: data.queue_token,
+      },
+    });
+
+    await writeAuthEvent({
+      event_type: "admin_action",
+      user_id: session.user.id,
+      role,
+      success: true,
+      metadata: {
+        action: payload.check_in
+          ? "appointment_check_in"
+          : payload.date || payload.timeSlot
+            ? "appointment_reschedule"
+            : "appointment_status",
+        appointment_id: id,
+        status: data.status,
+        slot_freed: isSlotFreeingStatus(String(data.status)),
       },
     });
 

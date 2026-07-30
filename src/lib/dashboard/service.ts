@@ -129,6 +129,16 @@ export type DashboardSummary = {
   upcoming: unknown[];
   doctor_availability: { id: string; name: string; status: string }[];
   monthly_series: { date: string; appointments: number; revenue: number }[];
+  /** Operational KPIs (lab / pharmacy / Rx / bills) — optional */
+  operations?: {
+    lab_pending: number;
+    pharmacy_sales_today: number;
+    low_stock: number;
+    expiring_meds: number;
+    rx_today: number;
+    bills_today: number;
+    revenue_today: number;
+  };
 };
 
 export type SearchResultGroup = {

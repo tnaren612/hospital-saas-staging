@@ -242,7 +242,7 @@ export function buildAppointmentReminderMessage(input: {
   timeSlot: string;
   hospitalName?: string;
 }): string {
-  const hospital = input.hospitalName || "Sri Srinivasa Hospital";
+  const hospital = input.hospitalName || "Hospital";
   return (
     `Reminder: ${input.patientName}, your appointment with ${input.doctorName} ` +
     `at ${hospital} is on ${input.date} at ${input.timeSlot}. ` +

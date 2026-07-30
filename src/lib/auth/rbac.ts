@@ -1,0 +1,58 @@
+/**
+ * Server-side RBAC helpers for route handlers and server components.
+ * Prefer importing from here or from roles.ts — never hardcode role strings in pages.
+ */
+
+export {
+  ROLES,
+  ALL_ROLES,
+  HOSPITAL_STAFF_ROLES,
+  ADMIN_CONSOLE_ROLES,
+  normalizeRole,
+  canonicalizeRole,
+  isValidRole,
+  isSuperAdmin,
+  isAdmin,
+  isAdminRole,
+  isDoctor,
+  isPatient,
+  isReceptionist,
+  isLabTechnician,
+  isPharmacist,
+  isBilling,
+  isFinance,
+  isHR,
+  isManager,
+  isHospitalStaff,
+  isStaffRole,
+  canAccessAdmin,
+  canAccessAdminConsole,
+  canAccessBilling,
+  canAccessInsurance,
+  canAccessLaboratory,
+  canAccessPharmacy,
+  canAccessDoctorWorkspace,
+  canAccessReception,
+  canAccessFinance,
+  canAccessHR,
+  canAccessManager,
+  canAccessPatientPortal,
+  homePathForRole,
+  matchRouteGuard,
+  isPublicUnderGuard,
+  roleAllowedOnPath,
+  canAccessFeature,
+  roleLabel,
+  rolesForPhase2Module,
+  type AppRole,
+  type FeatureKey,
+  type RouteGuard,
+} from "@/lib/auth/roles";
+
+export {
+  validatePassword,
+  passwordsMatch,
+  passwordSchema,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT,
+} from "@/lib/auth/password-policy";

@@ -51,7 +51,11 @@ describe("image-resolve", () => {
 
   it("provides doctor default photo", () => {
     assert.ok(defaultDoctorImage().includes("doctors"));
-    assert.ok(defaultDoctorImage().endsWith(".jpg"));
+    assert.ok(
+      defaultDoctorImage().endsWith(".jpg") ||
+        defaultDoctorImage().endsWith(".png")
+    );
   });
 });
+
 

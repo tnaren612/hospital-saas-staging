@@ -13,7 +13,7 @@ function v(vars: Vars, key: string, fallback = ""): string {
 }
 
 function hospital(vars: Vars): string {
-  return v(vars, "hospitalName", "Sri Srinivasa Hospital");
+  return v(vars, "hospitalName", "Hospital");
 }
 
 export function renderWhatsAppMessage(
@@ -32,10 +32,10 @@ export function renderWhatsAppMessage(
         hospital(vars),
         ``,
         `Doctor:`,
-        v(vars, "doctorName", "Dr. Varaprasad Venkata Sumanth"),
+        v(vars, "doctorName", "Doctor"),
         ``,
         `Department:`,
-        v(vars, "departmentName", "Pulmonology"),
+        v(vars, "departmentName", "Department"),
         ``,
         `Date:`,
         v(vars, "date"),
@@ -91,22 +91,49 @@ export function renderWhatsAppMessage(
       );
 
     case "prescription_ready":
-      return (
-        `${hospital(vars)}: Prescription ready for ${v(vars, "patientName")}` +
-        (v(vars, "doctorName") ? ` (Dr ${v(vars, "doctorName")})` : "") +
-        `. Collect from pharmacy/portal.`
-      );
+      return [
+        `Hello ${v(vars, "patientName")},`,
+        ``,
+        `Your prescription is ready.`,
+        `Doctor: ${v(vars, "doctorName", "Doctor")}`,
+        v(vars, "bookingRef") ? `Rx Ref: ${v(vars, "bookingRef")}` : "",
+        ``,
+        `You can view/print it from the patient portal or collect at reception.`,
+        `— ${hospital(vars)}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
 
     case "lab_report_ready":
-      return (
-        `${hospital(vars)}: Lab report "${v(vars, "reportTitle", "Report")}" ` +
-        `is ready for ${v(vars, "patientName")}.`
-      );
+      return [
+        `Hello ${v(vars, "patientName")},`,
+        ``,
+        `Your lab report is ready.`,
+        `Report: ${v(vars, "reportTitle", "Lab Report")}`,
+        v(vars, "bookingRef") ? `Ref: ${v(vars, "bookingRef")}` : "",
+        ``,
+        `Please download from the portal or collect at the lab counter.`,
+        `— ${hospital(vars)}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+    case "bill_generated":
+      return [
+        `Hello ${v(vars, "patientName")},`,
+        ``,
+        `Your hospital bill has been generated.`,
+        `Bill: ${v(vars, "invoiceNumber", v(vars, "bookingRef"))}`,
+        `Amount: ${v(vars, "amountLabel", `Rs ${v(vars, "amount")}`)}`,
+        `Status: ${v(vars, "status", "pending")}`,
+        ``,
+        `— ${hospital(vars)}`,
+      ].join("\n");
 
     case "emergency":
       return (
         `URGENT — ${hospital(vars)}: ${v(vars, "message", "Please contact the hospital immediately.")} ` +
-        `Call ${v(vars, "emergencyPhone", "8121864863")}.`
+        `Call ${v(vars, "emergencyPhone", "reception")}.`
       );
 
     case "doctor_contact":
@@ -135,7 +162,7 @@ export function renderWhatsAppMessage(
 /** SMS — keep under ~160 chars when possible */
 export function renderSmsMessage(templateId: string, vars: Vars): string {
   const id = templateId as NotificationTemplateId;
-  const h = "SSH Hosp";
+  const h = v(vars, "smsSignature", hospital(vars)).slice(0, 20);
   switch (id) {
     case "appointment_confirmation":
       return `${h}: Appt confirmed ${v(vars, "date")} ${v(vars, "timeSlot")} w/ ${v(vars, "doctorName")}.${v(vars, "bookingRef") ? ` Ref:${v(vars, "bookingRef")}` : ""}`;

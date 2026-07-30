@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/env";
 import { sanitizePlainText } from "@/lib/validation";
 import { isEmailConfigured } from "@/lib/notifications/email";
+import { getHospitalConfig } from "@/lib/hospital/service";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +24,16 @@ async function sendContactEmail(input: {
   if (!isEmailConfigured()) {
     return { sent: false, error: "RESEND_API_KEY not configured" };
   }
+  const config = await getHospitalConfig();
 
   const from =
     process.env.EMAIL_FROM ||
     process.env.RESEND_FROM ||
-    "Sri Srinivasa Hospital <onboarding@resend.dev>";
+    `${config.email.from_name || config.branding.name} <onboarding@resend.dev>`;
   const inbox =
     process.env.HOSPITAL_INBOX ||
     process.env.CONTACT_INBOX ||
-    "info@srisrinivasahospital.com";
+    config.contact.email;
 
   try {
     const res = await fetch("https://api.resend.com/emails", {

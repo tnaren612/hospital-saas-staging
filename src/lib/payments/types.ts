@@ -120,6 +120,8 @@ export type CreatePaymentInput = {
   payment_provider?: PaymentProvider;
   notes?: string;
   line_items?: InvoiceLineItem[];
+  /** Tenant stamp (H-01) */
+  hospitalId?: string | null;
 };
 
 export type GatewayOrderResult = {
@@ -192,9 +194,9 @@ export const DEFAULT_SETTINGS: PaymentSettings = {
   stripe_enabled: false,
   currency: "INR",
   tax_percentage: 0,
-  hospital_name: "Sri Srinivasa Hospital",
-  hospital_address: "Nellore Road, Badvel, Andhra Pradesh",
-  invoice_prefix: "SSH-INV",
+  hospital_name: "Hospital",
+  hospital_address: "",
+  invoice_prefix: "INV",
   gstin: "",
   terms:
     "Payment once made is subject to hospital refund policy. For queries contact reception.",

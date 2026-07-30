@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { type FormEvent, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import toast from "react-hot-toast";
@@ -16,11 +16,13 @@ import { Button } from "@/components/ui/button";
 import { setPatient } from "@/lib/storage";
 import { generateId } from "@/lib/utils";
 import { useLocale } from "@/hooks/use-locale";
+import { PASSWORD_POLICY_HINT } from "@/lib/auth/password-policy";
 import {
-  patientLoginAction,
   patientRegisterAction,
   patientForgotPasswordAction,
+  patientResendVerificationAction,
 } from "@/lib/patient/actions";
+import { createClientOrNull } from "@/lib/supabase/client";
 
 const otpSchema = z.object({
   phone: z.string().regex(/^[6-9]\d{9}$/, "Enter valid 10-digit mobile"),
@@ -30,12 +32,18 @@ const otpSchema = z.object({
 type OtpValues = z.infer<typeof otpSchema>;
 const DEMO_OTP = "123456";
 
-type Mode = "otp" | "login" | "register" | "forgot";
+type Mode = "otp" | "login" | "register" | "forgot" | "resend";
 
-export function PatientLoginContent() {
+type Props = {
+  /** When true, email auth is primary; demo OTP is hidden (production Supabase). */
+  supabaseEnabled?: boolean;
+};
+
+export function PatientLoginContent({ supabaseEnabled = false }: Props) {
   const { t } = useLocale();
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("otp");
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<Mode>(supabaseEnabled ? "login" : "otp");
   const [otpStep, setOtpStep] = useState<"phone" | "otp">("phone");
   const [loading, setLoading] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -45,6 +53,14 @@ export function PatientLoginContent() {
   const otpForm = useForm<OtpValues>({
     resolver: zodResolver(otpSchema),
   });
+
+  useEffect(() => {
+    const err = searchParams.get("error");
+    if (err) {
+      setAuthError(err);
+      setMode("login");
+    }
+  }, [searchParams]);
 
   const onOtpSubmit = async (data: OtpValues) => {
     setLoading(true);
@@ -70,14 +86,37 @@ export function PatientLoginContent() {
     setLoading(false);
   };
 
-  const onEmailAuth = (formData: FormData) => {
+  const onEmailAuth = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
     setAuthError(null);
     setAuthInfo(null);
     startTransition(async () => {
       if (mode === "login") {
-        const res = await patientLoginAction(null, formData);
-        if (!res.ok) {
-          setAuthError(res.error || "Login failed");
+        const supabase = createClientOrNull();
+        if (!supabase) {
+          setAuthError("Patient authentication is not configured.");
+          return;
+        }
+        const response = await fetch("/api/patient/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: String(formData.get("email") || "").trim().toLowerCase(),
+            password: String(formData.get("password") || ""),
+          }),
+        });
+        const result = (await response.json().catch(() => null)) as {
+          error?: string;
+          session?: { access_token: string; refresh_token: string };
+        } | null;
+        if (!response.ok || !result?.session) {
+          setAuthError(result?.error || "Login failed");
+          return;
+        }
+        const { error } = await supabase.auth.setSession(result.session);
+        if (error) {
+          setAuthError(error.message || "Login failed");
           return;
         }
         toast.success("Signed in");
@@ -91,8 +130,8 @@ export function PatientLoginContent() {
           setAuthError(res.error || "Registration failed");
           return;
         }
-        if (res.error) {
-          setAuthInfo(res.error);
+        if (res.info) {
+          setAuthInfo(res.info);
           toast.success("Registered — verify email if required");
           setMode("login");
           return;
@@ -108,11 +147,27 @@ export function PatientLoginContent() {
           setAuthError(res.error || "Request failed");
           return;
         }
-        setAuthInfo(res.error || "Check your email for a reset link.");
-        toast.success("Reset email sent (if account exists)");
+        setAuthInfo(res.info || "Check your email for a reset link.");
+        toast.success("If the account exists, a reset email was sent");
+        return;
+      }
+      if (mode === "resend") {
+        const res = await patientResendVerificationAction(null, formData);
+        if (!res.ok) {
+          setAuthError(res.error || "Request failed");
+          return;
+        }
+        setAuthInfo(res.info || "Verification email sent if needed.");
+        toast.success("Request submitted");
       }
     });
   };
+
+  const modes: { key: Mode; label: string; show: boolean }[] = [
+    { key: "otp", label: "Phone OTP", show: !supabaseEnabled },
+    { key: "login", label: "Email", show: true },
+    { key: "register", label: "Register", show: true },
+  ];
 
   return (
     <div className="page-enter">
@@ -120,7 +175,10 @@ export function PatientLoginContent() {
         <Card className="mx-auto w-full max-w-md shadow-lift">
           <CardContent className="p-8">
             <div className="mb-6 text-center">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950">
+              <div
+                className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950"
+                aria-hidden
+              >
                 {mode === "otp" ? (
                   <Smartphone className="h-7 w-7" />
                 ) : (
@@ -135,71 +193,84 @@ export function PatientLoginContent() {
                     ? "Create a secure patient account"
                     : mode === "forgot"
                       ? "Reset your password via email"
-                      : "Sign in with email and password"}
+                      : mode === "resend"
+                        ? "Resend email verification link"
+                        : "Sign in with email and password"}
               </p>
             </div>
 
-            <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-muted p-1 text-xs font-semibold">
-              {(
-                [
-                  ["otp", "Phone OTP"],
-                  ["login", "Email"],
-                  ["register", "Register"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => {
-                    setMode(key);
-                    setAuthError(null);
-                    setAuthInfo(null);
-                  }}
-                  className={`flex-1 rounded-lg px-2 py-2 ${
-                    mode === key
-                      ? "bg-background shadow-sm"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div
+              className="mb-4 flex flex-wrap gap-1 rounded-xl bg-muted p-1 text-xs font-semibold"
+              role="tablist"
+              aria-label="Login method"
+            >
+              {modes
+                .filter((m) => m.show)
+                .map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === key}
+                    onClick={() => {
+                      setMode(key);
+                      setAuthError(null);
+                      setAuthInfo(null);
+                    }}
+                    className={`flex-1 rounded-lg px-2 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                      mode === key
+                        ? "bg-background shadow-sm"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
             </div>
 
-            {mode === "otp" && (
+            {mode === "otp" && !supabaseEnabled && (
               <form
                 onSubmit={otpForm.handleSubmit(onOtpSubmit)}
                 className="space-y-4"
                 noValidate
               >
                 <div>
-                  <Label className="mb-2 block">Phone Number</Label>
+                  <Label htmlFor="otp-phone" className="mb-2 block">
+                    Phone Number
+                  </Label>
                   <Input
+                    id="otp-phone"
                     {...otpForm.register("phone")}
                     placeholder="10-digit mobile"
                     maxLength={10}
                     disabled={otpStep === "otp"}
+                    autoComplete="tel"
+                    inputMode="numeric"
                   />
                   {otpForm.formState.errors.phone && (
-                    <p className="mt-1 text-xs text-emergency">
+                    <p className="mt-1 text-xs text-emergency" role="alert">
                       {otpForm.formState.errors.phone.message}
                     </p>
                   )}
                 </div>
                 {otpStep === "otp" && (
                   <div>
-                    <Label className="mb-2 block">OTP</Label>
+                    <Label htmlFor="otp-code" className="mb-2 block">
+                      OTP
+                    </Label>
                     <Input
+                      id="otp-code"
                       {...otpForm.register("otp")}
                       placeholder="Enter 6-digit OTP"
                       maxLength={6}
                       inputMode="numeric"
+                      autoComplete="one-time-code"
                     />
                   </div>
                 )}
                 <Button type="submit" className="w-full" disabled={loading}>
                   {loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   ) : otpStep === "phone" ? (
                     "Send OTP"
                   ) : (
@@ -207,79 +278,140 @@ export function PatientLoginContent() {
                   )}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">
-                  Demo OTP: <strong>123456</strong>
+                  Demo OTP: <strong>123456</strong> (local only)
                 </p>
               </form>
             )}
 
             {(mode === "login" ||
               mode === "register" ||
-              mode === "forgot") && (
-              <form action={onEmailAuth} className="space-y-4">
+              mode === "forgot" ||
+              mode === "resend") && (
+              <form onSubmit={onEmailAuth} className="space-y-4" noValidate>
                 {mode === "register" && (
                   <>
                     <div>
-                      <Label className="mb-2 block">Full name</Label>
-                      <Input name="fullName" required minLength={2} />
+                      <Label htmlFor="fullName" className="mb-2 block">
+                        Full name
+                      </Label>
+                      <Input
+                        id="fullName"
+                        name="fullName"
+                        required
+                        minLength={2}
+                        autoComplete="name"
+                      />
                     </div>
                     <div>
-                      <Label className="mb-2 block">Phone</Label>
+                      <Label htmlFor="phone" className="mb-2 block">
+                        Phone
+                      </Label>
                       <Input
+                        id="phone"
                         name="phone"
                         required
                         maxLength={10}
                         placeholder="10-digit mobile"
+                        inputMode="numeric"
+                        autoComplete="tel"
                       />
                     </div>
                   </>
                 )}
                 <div>
-                  <Label className="mb-2 block">Email</Label>
-                  <Input name="email" type="email" required autoComplete="email" />
+                  <Label htmlFor="email" className="mb-2 block">
+                    Email
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                  />
                 </div>
-                {mode !== "forgot" && (
+                {(mode === "login" || mode === "register") && (
                   <div>
-                    <Label className="mb-2 block">Password</Label>
+                    <Label htmlFor="password" className="mb-2 block">
+                      Password
+                    </Label>
                     <Input
+                      id="password"
                       name="password"
                       type="password"
                       required
-                      minLength={6}
+                      minLength={mode === "register" ? 8 : 1}
                       autoComplete={
                         mode === "login" ? "current-password" : "new-password"
                       }
                     />
+                    {mode === "register" && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {PASSWORD_POLICY_HINT}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {mode === "register" && (
+                  <div>
+                    <Label htmlFor="confirmPassword" className="mb-2 block">
+                      Confirm password
+                    </Label>
+                    <Input
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      type="password"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                    />
                   </div>
                 )}
                 {authError && (
-                  <p className="text-xs text-emergency">{authError}</p>
+                  <p className="text-xs text-emergency" role="alert">
+                    {authError}
+                  </p>
                 )}
                 {authInfo && (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                  <p
+                    className="text-xs text-emerald-700 dark:text-emerald-300"
+                    role="status"
+                  >
                     {authInfo}
                   </p>
                 )}
                 <Button type="submit" className="w-full" disabled={pending}>
                   {pending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                   ) : mode === "login" ? (
                     "Sign in"
                   ) : mode === "register" ? (
                     "Create account"
+                  ) : mode === "resend" ? (
+                    "Resend verification"
                   ) : (
                     "Send reset link"
                   )}
                 </Button>
                 {mode === "login" && (
-                  <button
-                    type="button"
-                    className="w-full text-center text-xs font-medium text-primary-700 dark:text-primary-300"
-                    onClick={() => setMode("forgot")}
-                  >
-                    Forgot password?
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      className="w-full text-center text-xs font-medium text-primary-700 dark:text-primary-300"
+                      onClick={() => setMode("forgot")}
+                    >
+                      Forgot password?
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-center text-xs font-medium text-muted-foreground"
+                      onClick={() => setMode("resend")}
+                    >
+                      Resend verification email
+                    </button>
+                  </div>
                 )}
-                {mode === "forgot" && (
+                {(mode === "forgot" || mode === "resend") && (
                   <button
                     type="button"
                     className="w-full text-center text-xs font-medium text-primary-700"
@@ -292,8 +424,11 @@ export function PatientLoginContent() {
             )}
 
             <p className="mt-6 text-center text-xs text-muted-foreground">
-              Google / OTP SMS login can be enabled later via Supabase Auth
-              providers.{" "}
+              Staff and doctors use{" "}
+              <Link href="/admin/login" className="underline">
+                staff login
+              </Link>
+              .{" "}
               <Link href="/appointment" className="underline">
                 Book without login
               </Link>

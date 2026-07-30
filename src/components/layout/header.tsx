@@ -20,6 +20,8 @@ import { useLocale } from "@/hooks/use-locale";
 import { useAccessibility } from "@/hooks/use-accessibility";
 import { Button } from "@/components/ui/button";
 import { getHospital } from "@/lib/data";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
+import { useCmsSite } from "@/hooks/use-cms-site";
 
 const mainLinks = [
   { href: "/", key: "home" as const },
@@ -52,7 +54,20 @@ export function Header() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [a11yOpen, setA11yOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { config } = useHospitalConfig();
+  const cms = useCmsSite();
   const hospital = getHospital();
+  const displayName = config.branding.name || hospital.name;
+  const subtitle =
+    config.contact.city ||
+    hospital.address?.city ||
+    config.branding.tagline;
+  const resolvedMainLinks = cms.header.length
+    ? cms.header
+        .filter((item) => item.visible)
+        .sort((a, b) => a.order - b.order)
+        .map((item) => ({ href: item.href, label: item.label }))
+    : mainLinks.map((item) => ({ href: item.href, label: t.nav[item.key] }));
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -79,15 +94,30 @@ export function Header() {
           href="/"
           className="group flex min-w-0 items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:gap-2.5"
         >
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-hero-gradient text-xs font-bold text-white shadow-glow sm:h-10 sm:w-10 sm:text-sm">
-            SSH
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-hero-gradient text-xs font-bold text-white shadow-glow sm:h-10 sm:w-10 sm:text-sm">
+            {config.branding.logo_url &&
+            !config.branding.logo_url.endsWith(".svg") ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={config.branding.logo_url}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              displayName
+                .split(/\s+/)
+                .map((w) => w[0])
+                .join("")
+                .slice(0, 3)
+                .toUpperCase()
+            )}
           </div>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-xs font-bold tracking-tight text-foreground min-[360px]:text-sm sm:text-base">
-              {hospital.name}
+              {displayName}
             </div>
-            <div className="hidden text-[11px] text-muted-foreground sm:block">
-              Badvel · Pulmonology
+            <div className="hidden truncate text-[11px] text-muted-foreground sm:block">
+              {subtitle}
             </div>
           </div>
         </Link>
@@ -96,7 +126,7 @@ export function Header() {
           className="hidden items-center gap-1 xl:flex"
           aria-label="Primary navigation"
         >
-          {mainLinks.map((link) => (
+          {resolvedMainLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -107,10 +137,10 @@ export function Header() {
                   : "text-muted-foreground"
               )}
             >
-              {t.nav[link.key]}
+              {link.label}
             </Link>
           ))}
-          <div className="relative">
+          {!cms.header.length && <div className="relative">
             <button
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
@@ -139,7 +169,7 @@ export function Header() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </div>}
         </nav>
 
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">

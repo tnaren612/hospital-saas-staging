@@ -10,12 +10,13 @@ import {
   hasSupabaseConfig,
   isSupabaseBackendEnabled,
 } from "@/lib/supabase/env";
+import { getTenantContext } from "@/lib/hospital/tenant";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Admin: full history + revenue
- * Patient: own payments when authenticated (via meta phone fallback limited)
+ * Admin: tenant-scoped history + revenue (H-01)
+ * Patient: own payments only via patient_id / phone server filter (H-02)
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -27,9 +28,15 @@ export async function GET(request: Request) {
   if (scope === "admin" || scope === "auto") {
     const gate = await requireHmsAdmin();
     if (!gate.error && gate.supabase) {
+      const tenant = await getTenantContext();
       const [payments, revenue, settings] = await Promise.all([
-        listPayments({ q, status, limit: 200 }),
-        getRevenue(),
+        listPayments({
+          q,
+          status,
+          limit: 200,
+          hospitalId: tenant.hospitalId,
+        }),
+        getRevenue({ hospitalId: tenant.hospitalId }),
         getPaymentSettings(),
       ]);
       return NextResponse.json({
@@ -48,7 +55,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -62,17 +69,27 @@ export async function GET(request: Request) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // Use service list filtered — service role lists all; filter by patient_id
-    const all = await listPayments({ limit: 300 });
-    const data = all.filter(
-      (p) =>
-        (patient?.id && p.patient_id === patient.id) ||
-        (patient?.phone &&
-          String((p.meta as { patient_phone?: string })?.patient_phone || "") ===
-            patient.phone)
-    );
+    if (!patient?.id && !patient?.phone) {
+      return NextResponse.json({ data: [], mode: "patient" });
+    }
 
-    return NextResponse.json({ data, mode: "patient" });
+    // H-02: query scoped server-side — never list-all then filter
+    const data = await listPayments({
+      limit: 100,
+      patientId: patient.id ? String(patient.id) : undefined,
+      patientPhone: patient.phone ? String(patient.phone) : undefined,
+    });
+
+    // If patient_id empty on older payments, fall back to phone-only query
+    let rows = data;
+    if (rows.length === 0 && patient.phone) {
+      rows = await listPayments({
+        limit: 100,
+        patientPhone: String(patient.phone),
+      });
+    }
+
+    return NextResponse.json({ data: rows, mode: "patient" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ error: message }, { status: 500 });

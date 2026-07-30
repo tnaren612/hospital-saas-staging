@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 const TEMPLATES = [
   "welcome",
@@ -29,6 +30,7 @@ const TEMPLATES = [
 ];
 
 export function TestNotificationsPanel() {
+  const { config } = useHospitalConfig();
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [templateId, setTemplateId] = useState("appointment_confirmation");
@@ -41,17 +43,17 @@ export function TestNotificationsPanel() {
 
   const sampleVars = {
     patientName: "Test Patient",
-    doctorName: "Dr. Sumanth",
-    departmentName: "Pulmonology",
+    doctorName: "Test Doctor",
+    departmentName: "Test Department",
     date: "2026-08-01",
     timeSlot: "10:00 AM",
     type: "in-person",
-    bookingRef: "SSH-TEST-001",
-    invoiceNumber: "SSH-INV-1001",
+    bookingRef: `${config.prefixes.appointment}-TEST-001`,
+    invoiceNumber: `${config.prefixes.invoice}-1001`,
     amount: "500",
     amountLabel: "Rs 500.00",
     paymentMethod: "UPI",
-    hospitalName: "Sri Srinivasa Hospital",
+    hospitalName: config.branding.name,
     message: "This is a test notification from admin.",
     window: "24h",
   };

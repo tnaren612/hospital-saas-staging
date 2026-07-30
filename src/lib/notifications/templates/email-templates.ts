@@ -26,7 +26,7 @@ function layout(title: string, bodyHtml: string, hospitalName: string): string {
       <table role="presentation" width="100%" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(15,23,42,.08)">
         <tr><td style="background:linear-gradient(135deg,#142257,#1a5ff5 55%,#0d9488);padding:20px 24px;color:#fff">
           <div style="font-size:18px;font-weight:700">${esc(hospitalName)}</div>
-          <div style="font-size:12px;opacity:.9;margin-top:4px">Pulmonology · Respiratory Care · Badvel</div>
+          <div style="font-size:12px;opacity:.9;margin-top:4px">Healthcare services</div>
         </td></tr>
         <tr><td style="padding:24px">
           <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3">${esc(title)}</h1>
@@ -65,7 +65,17 @@ function v(vars: Vars, key: string, fallback = ""): string {
 }
 
 function hospital(vars: Vars): string {
-  return v(vars, "hospitalName", "Sri Srinivasa Hospital");
+  return v(vars, "hospitalName", "Hospital");
+}
+
+function insuranceNotice(title: string, vars: Vars): RenderedTemplate {
+  const subject = `${title} — ${hospital(vars)}`;
+  const text = v(vars, "message", title);
+  return {
+    subject,
+    text,
+    html: layout(title, `<p>${esc(text).replace(/\n/g, "<br/>")}</p>`, hospital(vars)),
+  };
 }
 
 const builders: Record<
@@ -268,6 +278,24 @@ const builders: Record<
     return { subject, text, html };
   },
 
+  bill_generated: (vars) => {
+    const subject = `Hospital bill ${v(vars, "invoiceNumber", "")} — ${hospital(vars)}`;
+    const text = `Bill ${v(vars, "invoiceNumber")} for ${v(vars, "patientName")}: ${v(vars, "amountLabel", v(vars, "amount"))}. Status: ${v(vars, "status", "pending")}.`;
+    const html = layout(
+      "Hospital bill",
+      `<p>Dear ${esc(v(vars, "patientName"))},</p>
+       <p>Your hospital bill has been generated.</p>
+       ${rows([
+         ["Bill no.", v(vars, "invoiceNumber", "—")],
+         ["Amount", v(vars, "amountLabel", v(vars, "amount", "—"))],
+         ["Status", v(vars, "status", "pending")],
+         ["Method", v(vars, "paymentMethod", "—")],
+       ])}`,
+      hospital(vars)
+    );
+    return { subject, text, html };
+  },
+
   emergency: (vars) => {
     const subject = `URGENT — ${v(vars, "subject", "Emergency notice")}`;
     const text = v(vars, "message", "Emergency notification from the hospital.");
@@ -275,7 +303,7 @@ const builders: Record<
       "Emergency notification",
       `<p style="color:#dc2626;font-weight:700">Urgent notice</p>
        <p>${esc(v(vars, "message", "Please contact the hospital immediately."))}</p>
-       <p>Emergency phone: <strong>${esc(v(vars, "emergencyPhone", "8121864863"))}</strong></p>`,
+       <p>Emergency phone: <strong>${esc(v(vars, "emergencyPhone", "Contact reception"))}</strong></p>`,
       hospital(vars)
     );
     return { subject, text, html };
@@ -322,6 +350,13 @@ const builders: Record<
     );
     return { subject, text, html };
   },
+  policy_assigned: (vars) => insuranceNotice("Insurance policy assigned", vars),
+  preauthorization_requested: (vars) => insuranceNotice("Pre-authorization requested", vars),
+  preauthorization_approved: (vars) => insuranceNotice("Pre-authorization approved", vars),
+  preauthorization_rejected: (vars) => insuranceNotice("Pre-authorization rejected", vars),
+  claim_submitted: (vars) => insuranceNotice("Insurance claim submitted", vars),
+  claim_approved: (vars) => insuranceNotice("Insurance claim approved", vars),
+  claim_settled: (vars) => insuranceNotice("Insurance claim settled", vars),
 };
 
 export class EmailTemplateService {

@@ -25,29 +25,65 @@ import {
   IndianRupee,
   MessageSquareQuote,
   FlaskConical,
+  Pill,
+  ClipboardList,
+  Stethoscope,
+  BedDouble,
+  ScanLine,
+  Warehouse,
+  LogOutIcon,
+  Receipt,
+  PanelsTopLeft,
+  Send,
+  CalendarCheck,
 } from "lucide-react";
 import { adminLogoutAction } from "@/lib/auth/actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  canAccessFeature,
+  type FeatureKey,
+  roleLabel,
+} from "@/lib/auth/roles";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
+import { isFeatureModuleEnabled } from "@/lib/hospital/modules";
 
-const links = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/appointments", label: "Appointments", icon: CalendarDays },
-  { href: "/admin/calendar", label: "Calendar", icon: CalendarRange },
-  { href: "/admin/billing", label: "Billing", icon: IndianRupee },
-  { href: "/admin/doctors", label: "Doctors", icon: UserRound },
-  { href: "/admin/departments", label: "Departments", icon: Building2 },
-  { href: "/admin/patients", label: "Patients", icon: Users },
-  { href: "/admin/availability", label: "Availability", icon: CalendarClock },
-  { href: "/admin/reports", label: "Reports", icon: FileBarChart },
-  { href: "/admin/notifications", label: "Notifications", icon: Bell },
-  { href: "/admin/test-notifications", label: "Test Notify", icon: FlaskConical },
-  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/admin/blog", label: "Health Tips", icon: FileText },
-  { href: "/admin/packages", label: "Packages", icon: Package },
-  { href: "/admin/gallery", label: "Gallery", icon: Images },
-  { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+const links: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  feature: FeatureKey;
+}[] = [
+  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard, feature: "dashboard" },
+  { href: "/admin/appointments", label: "Appointments", icon: CalendarDays, feature: "appointments" },
+  { href: "/admin/calendar", label: "Calendar", icon: CalendarRange, feature: "calendar" },
+  { href: "/admin/hospital-billing", label: "Hospital Bills", icon: Receipt, feature: "billing" },
+  { href: "/admin/billing", label: "Payments", icon: IndianRupee, feature: "billing" },
+  { href: "/admin/lab", label: "Laboratory", icon: FlaskConical, feature: "lab" },
+  { href: "/admin/pharmacy", label: "Pharmacy", icon: Pill, feature: "pharmacy" },
+  { href: "/admin/prescriptions", label: "Prescriptions", icon: ClipboardList, feature: "prescriptions" },
+  { href: "/admin/encounters", label: "Clinical Encounters", icon: Stethoscope, feature: "encounters" },
+  { href: "/admin/ipd", label: "IPD", icon: BedDouble, feature: "ipd" },
+  { href: "/admin/radiology", label: "Radiology", icon: ScanLine, feature: "radiology" },
+  { href: "/admin/inventory", label: "Inventory", icon: Warehouse, feature: "inventory" },
+  { href: "/admin/discharge", label: "Discharge", icon: LogOutIcon, feature: "discharge" },
+  { href: "/admin/referrals", label: "Referrals", icon: Send, feature: "referrals" },
+  { href: "/admin/followups", label: "Follow-up", icon: CalendarCheck, feature: "followups" },
+  { href: "/admin/insurance", label: "Insurance", icon: Shield, feature: "insurance" },
+  { href: "/admin/doctors", label: "Doctors", icon: UserRound, feature: "doctors" },
+  { href: "/admin/departments", label: "Departments", icon: Building2, feature: "departments" },
+  { href: "/admin/patients", label: "Patients", icon: Users, feature: "patients" },
+  { href: "/admin/availability", label: "Availability", icon: CalendarClock, feature: "availability" },
+  { href: "/admin/reports", label: "Reports", icon: FileBarChart, feature: "reports" },
+  { href: "/admin/notifications", label: "Notifications", icon: Bell, feature: "notifications" },
+  { href: "/admin/test-notifications", label: "Test Notify", icon: FlaskConical, feature: "notifications" },
+  { href: "/admin/analytics", label: "Analytics", icon: BarChart3, feature: "analytics" },
+  { href: "/admin/blog", label: "Health Tips", icon: FileText, feature: "cms" },
+  { href: "/admin/packages", label: "Packages", icon: Package, feature: "cms" },
+  { href: "/admin/gallery", label: "Gallery", icon: Images, feature: "cms" },
+  { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote, feature: "cms" },
+  { href: "/admin/cms", label: "Website Pages", icon: PanelsTopLeft, feature: "cms" },
+  { href: "/admin/settings", label: "Settings", icon: Settings, feature: "settings" },
 ];
 
 type AdminShellProps = {
@@ -55,6 +91,7 @@ type AdminShellProps = {
   adminEmail?: string | null;
   adminName?: string | null;
   mode?: "supabase" | "demo";
+  role?: string | null;
 };
 
 export function AdminShell({
@@ -62,9 +99,18 @@ export function AdminShell({
   adminEmail,
   adminName,
   mode = "supabase",
+  role = "admin",
 }: AdminShellProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { config } = useHospitalConfig();
+  const visibleLinks = links.filter((l) => {
+    const roleOk =
+      mode === "demo" || canAccessFeature(role || "admin", l.feature);
+    const moduleOk =
+      mode === "demo" || isFeatureModuleEnabled(config, l.feature);
+    return roleOk && moduleOk;
+  });
 
   return (
     <div className="min-h-[70vh] bg-muted/30">
@@ -81,20 +127,27 @@ export function AdminShell({
               {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
             </button>
             <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-hero-gradient text-xs font-bold text-white">
-                SSH
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-hero-gradient text-xs font-bold text-white">
+                {config.branding.name
+                  .split(/\s+/)
+                  .map((w) => w[0])
+                  .join("")
+                  .slice(0, 3)
+                  .toUpperCase()}
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-                  Hospital ERP
+                  <span className="truncate max-w-[10rem] sm:max-w-xs">
+                    {config.branding.name}
+                  </span>
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-950 dark:text-primary-300">
                     <Shield className="h-3 w-3" />
                     {mode === "supabase" ? "Supabase" : "Demo"}
                   </span>
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
-                  {adminName || adminEmail || "Administrator"} · Sri Srinivasa
-                  Hospital
+                  {adminName || adminEmail || "Administrator"} ·{" "}
+                  {roleLabel(role)} · {config.branding.name}
                 </div>
               </div>
             </div>
@@ -116,7 +169,7 @@ export function AdminShell({
           )}
         >
           <nav aria-label="Admin navigation" className="space-y-1 pb-6">
-            {links.map((link) => {
+            {visibleLinks.map((link) => {
               const active =
                 pathname === link.href ||
                 (link.href !== "/admin/dashboard" &&

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { openRazorpayCheckout } from "@/lib/payments/razorpay-checkout";
 import { WhatsAppSendButton } from "@/components/notifications/whatsapp-send-button";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 type PublicSettings = {
   online_payment_enabled: boolean;
@@ -52,6 +53,7 @@ type Props = {
  * Online path: createPayment → Razorpay Standard Checkout → verifyPayment (HMAC).
  */
 export function PaymentOptions(props: Props) {
+  const { config } = useHospitalConfig();
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [busy, setBusy] = useState<"cash" | "online" | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -149,7 +151,7 @@ export function PaymentOptions(props: Props) {
           orderId: gateway.orderId,
           amountPaise,
           currency: gateway.currency || settings.currency || "INR",
-          name: gateway.name || "Sri Srinivasa Hospital",
+          name: gateway.name || config.branding.name,
           description: gateway.description || props.packageName || "Hospital payment",
           prefill: gateway.prefill || {
             name: props.patientName,
@@ -181,11 +183,16 @@ export function PaymentOptions(props: Props) {
       }
 
       // Stripe redirect (if returned)
-      if (
-        gateway.provider === "stripe" &&
-        gateway.checkoutHint?.startsWith("http")
-      ) {
-        window.location.href = gateway.checkoutHint;
+      if (gateway.provider === "stripe" && gateway.checkoutHint) {
+        const checkoutUrl = new URL(gateway.checkoutHint);
+        const trustedStripeHost =
+          checkoutUrl.protocol === "https:" &&
+          (checkoutUrl.hostname === "checkout.stripe.com" ||
+            checkoutUrl.hostname.endsWith(".stripe.com"));
+        if (!trustedStripeHost) {
+          throw new Error("Payment provider returned an invalid checkout URL");
+        }
+        window.location.assign(checkoutUrl.toString());
         return;
       }
 
@@ -236,7 +243,7 @@ export function PaymentOptions(props: Props) {
                 amount: props.amount,
                 amountLabel: formatCurrency(props.amount),
                 invoiceNumber: "see portal",
-                hospitalName: "Sri Srinivasa Hospital",
+                hospitalName: config.branding.name,
               }}
               label="Send via WhatsApp"
             />

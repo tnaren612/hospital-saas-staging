@@ -5,7 +5,7 @@ import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
   title: "Admin Login",
-  description: "Secure administrator login for Sri Srinivasa Hospital.",
+  description: "Secure tenant administrator login.",
   path: "/admin/login",
   noIndex: true,
 });

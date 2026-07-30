@@ -10,6 +10,8 @@ import {
   hasSupabaseConfig,
 } from "@/lib/supabase/env";
 
+let browserClient: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createClient() {
   if (!hasSupabaseConfig()) {
     throw new Error(
@@ -17,11 +19,15 @@ export function createClient() {
     );
   }
 
-  return createBrowserClient(getSupabaseUrl()!, getSupabaseAnonKey()!);
+  browserClient ??= createBrowserClient(
+    getSupabaseUrl()!,
+    getSupabaseAnonKey()!
+  );
+  return browserClient;
 }
 
 /** Returns null when Supabase env is missing (demo/localStorage mode). */
 export function createClientOrNull() {
   if (!hasSupabaseConfig()) return null;
-  return createBrowserClient(getSupabaseUrl()!, getSupabaseAnonKey()!);
+  return createClient();
 }

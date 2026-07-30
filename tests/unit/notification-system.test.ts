@@ -83,6 +83,7 @@ describe("WhatsApp link generator", () => {
       patientName: "Ravi",
       doctorName: "Dr Sumanth",
       departmentName: "Pulmonology",
+      hospitalName: "Demo Hospital",
       date: "2026-08-01",
       timeSlot: "10:00 AM",
       type: "in-person",
@@ -91,7 +92,7 @@ describe("WhatsApp link generator", () => {
     });
     assert.match(msg, /Hello Ravi/);
     assert.match(msg, /Your appointment has been confirmed/);
-    assert.match(msg, /Sri Srinivasa Hospital/);
+    assert.match(msg, /Demo Hospital/);
     assert.match(msg, /Dr Sumanth/);
     assert.match(msg, /Pulmonology/);
     assert.match(msg, /2026-08-01/);

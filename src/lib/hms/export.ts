@@ -2,6 +2,21 @@
  * Client-side export helpers (CSV / Excel-friendly / print).
  */
 
+export function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Prevent spreadsheet applications from evaluating untrusted cells as formulas. */
+export function escapeSpreadsheetCell(value: unknown): string {
+  const text = String(value ?? "");
+  return /^[\t\r\n ]*[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
 export function downloadTextFile(
   filename: string,
   content: string,
@@ -20,7 +35,7 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   if (!rows.length) return "";
   const headers = Object.keys(rows[0]);
   const escape = (v: unknown) => {
-    const s = v == null ? "" : String(v);
+    const s = escapeSpreadsheetCell(v);
     if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
@@ -42,7 +57,7 @@ export function downloadExcel(
   }
   const headers = Object.keys(rows[0]);
   const escape = (v: unknown) => {
-    const s = v == null ? "" : String(v).replace(/\t/g, " ");
+    const s = escapeSpreadsheetCell(v).replace(/\t/g, " ");
     return s;
   };
   const lines = [
@@ -56,10 +71,15 @@ export function downloadExcel(
   );
 }
 
-export function printHtmlReport(title: string, tableHtml: string) {
+export function printHtmlReport(
+  title: string,
+  tableHtml: string,
+  issuer = "Hospital"
+) {
   const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
   if (!w) return;
-  w.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+  const safeTitle = escapeHtml(title);
+  w.document.write(`<!DOCTYPE html><html><head><title>${safeTitle}</title>
   <style>
     body{font-family:system-ui,sans-serif;padding:24px;color:#0f172a}
     h1{font-size:20px;margin:0 0 8px}
@@ -69,8 +89,8 @@ export function printHtmlReport(title: string, tableHtml: string) {
     th{background:#f1f5f9}
     @media print{button{display:none}}
   </style></head><body>
-  <h1>${title}</h1>
-  <p>Sri Srinivasa Hospital · Generated ${new Date().toLocaleString()}</p>
+  <h1>${safeTitle}</h1>
+  <p>${escapeHtml(issuer)} · Generated ${new Date().toLocaleString()}</p>
   ${tableHtml}
   <script>window.onload=function(){window.print()}</script>
   </body></html>`);
@@ -80,11 +100,13 @@ export function printHtmlReport(title: string, tableHtml: string) {
 export function rowsToTableHtml(rows: Record<string, unknown>[]): string {
   if (!rows.length) return "<p>No data</p>";
   const headers = Object.keys(rows[0]);
-  const head = headers.map((h) => `<th>${h}</th>`).join("");
+  const head = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("");
   const body = rows
     .map(
       (r) =>
-        `<tr>${headers.map((h) => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`
+        `<tr>${headers
+          .map((h) => `<td>${escapeHtml(r[h])}</td>`)
+          .join("")}</tr>`
     )
     .join("");
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;

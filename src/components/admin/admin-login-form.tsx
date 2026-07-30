@@ -18,13 +18,17 @@ import {
   adminLoginSchema,
   type AdminLoginFormValues,
 } from "@/lib/validation";
-import { adminLoginAction, type AuthActionResult } from "@/lib/auth/actions";
+import {
+  adminLoginAction,
+  adminForgotPasswordAction,
+  type AuthActionResult,
+} from "@/lib/auth/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/constants";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 export function AdminLoginForm() {
   const router = useRouter();
@@ -32,7 +36,10 @@ export function AdminLoginForm() {
   const next = searchParams.get("next") || "/admin/dashboard";
   const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [serverInfo, setServerInfo] = useState<string | null>(null);
+  const [forgotMode, setForgotMode] = useState(false);
   const [pending, startTransition] = useTransition();
+  const { config } = useHospitalConfig();
 
   const {
     register,
@@ -43,7 +50,7 @@ export function AdminLoginForm() {
   } = useForm<AdminLoginFormValues>({
     resolver: zodResolver(adminLoginSchema),
     defaultValues: {
-      email: PRIMARY_ADMIN_EMAIL,
+      email: "",
       password: "",
       remember: true,
     },
@@ -53,16 +60,46 @@ export function AdminLoginForm() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("ssh_admin_email");
+      const tenantKey = `hospital:${config.slug}:admin-email`;
+      const saved =
+        localStorage.getItem(tenantKey) ||
+        localStorage.getItem("ssh_admin_email");
       if (saved) setValue("email", saved);
-      else setValue("email", PRIMARY_ADMIN_EMAIL);
-    } catch {
-      setValue("email", PRIMARY_ADMIN_EMAIL);
+    } catch {}
+  }, [config.slug, setValue]);
+
+  const onForgotSubmit = () => {
+    setServerError(null);
+    setServerInfo(null);
+    const email = watch("email")?.trim().toLowerCase() || "";
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setServerError("Enter a valid email address");
+      return;
     }
-  }, [setValue]);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("email", email);
+      const result = await adminForgotPasswordAction(null, fd);
+      if (!result.ok) {
+        setServerError(result.error || "Request failed");
+        toast.error(result.error || "Request failed");
+        return;
+      }
+      setServerInfo(
+        result.info || "If an account exists, a reset link has been sent."
+      );
+      toast.success("Check your email if the account exists");
+    });
+  };
 
   const onSubmit = (values: AdminLoginFormValues) => {
+    if (forgotMode) {
+      onForgotSubmit();
+      return;
+    }
+
     setServerError(null);
+    setServerInfo(null);
     startTransition(async () => {
       const fd = new FormData();
       fd.set("email", values.email);
@@ -78,17 +115,24 @@ export function AdminLoginForm() {
       }
 
       try {
+        const tenantKey = `hospital:${config.slug}:admin-email`;
         if (values.remember) {
-          localStorage.setItem("ssh_admin_email", values.email);
+          localStorage.setItem(tenantKey, values.email);
         } else {
-          localStorage.removeItem("ssh_admin_email");
+          localStorage.removeItem(tenantKey);
         }
+        localStorage.removeItem("ssh_admin_email");
       } catch {
         // ignore
       }
 
-      toast.success("Welcome back, Admin");
-      router.replace(next.startsWith("/admin") ? next : "/admin/dashboard");
+      toast.success("Welcome back");
+      const dest =
+        result.redirectTo ||
+        (next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : "/admin/dashboard");
+      router.replace(dest);
       router.refresh();
     });
   };
@@ -103,9 +147,11 @@ export function AdminLoginForm() {
               <Building2 className="h-6 w-6" />
             </div>
             <h1 className="text-3xl font-bold leading-tight">
-              Sri Srinivasa Hospital
+              {config.branding.name}
             </h1>
-            <p className="mt-2 text-white/80">Admin Control Center</p>
+            <p className="mt-2 text-white/80">
+              {config.branding.tagline || "Admin Control Center"}
+            </p>
           </div>
           <ul className="space-y-3 text-sm text-white/85">
             <li className="flex items-start gap-2">
@@ -133,14 +179,25 @@ export function AdminLoginForm() {
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50 text-primary-700 dark:bg-primary-950 lg:mx-0">
                 <Lock className="h-7 w-7" />
               </div>
-              <h2 className="text-2xl font-bold">Admin Login</h2>
+              <h2 className="text-2xl font-bold">
+                {forgotMode ? "Reset password" : "Staff Login"}
+              </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Sign in with your administrator email and password.
+                {forgotMode
+                  ? "We will email a secure reset link if the account exists."
+                  : "Sign in with your hospital staff email and password."}
               </p>
             </div>
 
             <form
-              onSubmit={handleSubmit(onSubmit)}
+              onSubmit={
+                forgotMode
+                  ? (e) => {
+                      e.preventDefault();
+                      onForgotSubmit();
+                    }
+                  : handleSubmit(onSubmit)
+              }
               className="space-y-5"
               noValidate
             >
@@ -155,7 +212,7 @@ export function AdminLoginForm() {
                     type="email"
                     autoComplete="email"
                     className="pl-10"
-                    placeholder={PRIMARY_ADMIN_EMAIL}
+                    placeholder="Enter your work email"
                     disabled={pending}
                     {...register("email")}
                   />
@@ -167,51 +224,57 @@ export function AdminLoginForm() {
                 )}
               </div>
 
-              <div>
-                <Label htmlFor="admin-password" className="mb-2 block">
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="admin-password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    className="pl-10 pr-11"
-                    placeholder="••••••••"
-                    disabled={pending}
-                    {...register("password")}
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
-                    onClick={() => setShowPassword((v) => !v)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
+              {!forgotMode && (
+                <div>
+                  <Label htmlFor="admin-password" className="mb-2 block">
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="admin-password"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      className="pl-10 pr-11"
+                      placeholder="••••••••"
+                      disabled={pending}
+                      {...register("password")}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={
+                        showPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  {errors.password && (
+                    <p className="mt-1.5 text-xs text-emergency" role="alert">
+                      {errors.password.message}
+                    </p>
+                  )}
                 </div>
-                {errors.password && (
-                  <p className="mt-1.5 text-xs text-emergency" role="alert">
-                    {errors.password.message}
-                  </p>
-                )}
-              </div>
+              )}
 
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-input text-primary-600 focus:ring-primary-500"
-                  checked={Boolean(remember)}
-                  onChange={(e) => setValue("remember", e.target.checked)}
-                  disabled={pending}
-                />
-                <span>Remember me</span>
-              </label>
+              {!forgotMode && (
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input text-primary-600 focus:ring-primary-500"
+                    checked={Boolean(remember)}
+                    onChange={(e) => setValue("remember", e.target.checked)}
+                    disabled={pending}
+                  />
+                  <span>Remember me</span>
+                </label>
+              )}
 
               {serverError && (
                 <div
@@ -219,6 +282,15 @@ export function AdminLoginForm() {
                   role="alert"
                 >
                   {serverError}
+                </div>
+              )}
+
+              {serverInfo && (
+                <div
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100"
+                  role="status"
+                >
+                  {serverInfo}
                 </div>
               )}
 
@@ -231,12 +303,27 @@ export function AdminLoginForm() {
                 {pending ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Signing in…
+                    {forgotMode ? "Sending…" : "Signing in…"}
                   </>
+                ) : forgotMode ? (
+                  "Send reset link"
                 ) : (
-                  "Sign in to Admin"
+                  "Sign in"
                 )}
               </Button>
+
+              <button
+                type="button"
+                className="w-full text-center text-xs font-medium text-primary-700 dark:text-primary-300"
+                onClick={() => {
+                  setForgotMode((v) => !v);
+                  setServerError(null);
+                  setServerInfo(null);
+                }}
+                disabled={pending}
+              >
+                {forgotMode ? "Back to sign in" : "Forgot password?"}
+              </button>
             </form>
 
             <p
@@ -245,11 +332,10 @@ export function AdminLoginForm() {
               )}
             >
               Production login uses Supabase Auth. Only accounts with{" "}
-              <code className="rounded bg-muted px-1">profiles.role = admin</code>{" "}
-              can enter. Primary admin:{" "}
-              <span className="font-medium text-foreground">
-                {PRIMARY_ADMIN_EMAIL}
-              </span>
+              <code className="rounded bg-muted px-1">
+                profiles.role = admin | doctor | …
+              </code>{" "}
+              can enter.
             </p>
           </CardContent>
         </Card>

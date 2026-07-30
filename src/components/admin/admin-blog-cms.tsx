@@ -25,7 +25,7 @@ import { sanitizeText, stripHtml } from "@/lib/utils";
 import type { BlogArticle } from "@/types";
 
 const DEFAULT_COVER = "/assets/images/blog/new-article.svg";
-const DEFAULT_AUTHOR = "Dr. Varaprasad Venkata Sumanth";
+const DEFAULT_AUTHOR = "Hospital Editorial Team";
 
 export function AdminBlogCms() {
   const [articles, setArticles] = useState<BlogArticle[]>([]);

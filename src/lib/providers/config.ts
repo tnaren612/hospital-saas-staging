@@ -30,12 +30,28 @@ export function getRazorpayStatus(): ProviderStatus {
 }
 
 export function getEmailStatus(): ProviderStatus {
+  const gmailUser = (process.env.GMAIL_USER || "").trim();
+  const gmailPass = (process.env.GMAIL_APP_PASSWORD || "").replace(/\s+/g, "");
+  const gmailReady =
+    Boolean(gmailUser) &&
+    gmailPass.length >= 8 &&
+    !gmailUser.includes("example") &&
+    gmailPass !== "your_app_password";
+
+  if (gmailReady) {
+    return {
+      configured: true,
+      mode: "live",
+      hint: "Gmail SMTP configured for transactional email (appointment confirmations).",
+    };
+  }
+
   const key = process.env.RESEND_API_KEY || "";
   if (!key || key.includes("xxxx") || key === "your_resend_api_key") {
     return {
       configured: false,
       mode: "disabled",
-      hint: "Set RESEND_API_KEY + EMAIL_FROM. Optional HOSPITAL_INBOX for contact form.",
+      hint: "Set GMAIL_USER + GMAIL_APP_PASSWORD (or RESEND_API_KEY) + EMAIL_FROM.",
     };
   }
   return {

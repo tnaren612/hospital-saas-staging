@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireHmsAdmin } from "@/lib/hms/server";
 import { mapDbAppointment } from "@/lib/admin/appointments";
+import { getTenantContext } from "@/lib/hospital/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
     );
   }
 
+  const tenant = await getTenantContext();
   let query = gate.supabase
     .from("appointments")
     .select("*")
@@ -34,19 +36,38 @@ export async function GET(request: Request) {
     .lte("date", to)
     .order("date");
 
+  if (tenant.hospitalId) {
+    query = query.eq("hospital_id", tenant.hospitalId);
+  }
   if (doctorId) query = query.eq("doctor_id", doctorId);
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+  if (error && /hospital_id|column/i.test(error.message)) {
+    let fb = gate.supabase
+      .from("appointments")
+      .select("*")
+      .gte("date", from)
+      .lte("date", to)
+      .order("date");
+    if (doctorId) fb = fb.eq("doctor_id", doctorId);
+    const retry = await fb;
+    data = retry.data;
+    error = retry.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   let rows = data || [];
 
   // Department filter via hospital_doctors map
   if (departmentId) {
-    const { data: docs } = await gate.supabase
+    let docsQ = gate.supabase
       .from("hospital_doctors")
       .select("id, name")
       .eq("department_id", departmentId);
+    if (tenant.hospitalId) {
+      docsQ = docsQ.eq("hospital_id", tenant.hospitalId);
+    }
+    const { data: docs } = await docsQ;
     const names = new Set((docs || []).map((d) => d.name));
     const ids = new Set((docs || []).map((d) => d.id));
     rows = rows.filter(

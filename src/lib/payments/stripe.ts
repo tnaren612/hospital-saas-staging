@@ -4,6 +4,7 @@
  */
 
 import type { GatewayOrderResult } from "@/lib/payments/types";
+import { allowMockPayments } from "@/lib/payments/production-guard";
 
 export function isStripeConfigured(): boolean {
   return Boolean(
@@ -28,6 +29,11 @@ export async function createStripeCheckoutSession(input: {
     "";
 
   if (!isStripeConfigured()) {
+    if (!allowMockPayments()) {
+      throw new Error(
+        "Stripe is not configured. Set STRIPE_SECRET_KEY for production."
+      );
+    }
     const orderId = `cs_mock_${Date.now()}`;
     return {
       provider: "mock",
@@ -95,6 +101,10 @@ export async function verifyStripeSession(
 ): Promise<{ paid: boolean; paymentIntent?: string }> {
   const secret = process.env.STRIPE_SECRET_KEY || "";
   if (!secret) {
+    // C-04: mock Stripe verify only outside production
+    if (!allowMockPayments()) {
+      return { paid: false };
+    }
     return {
       paid: sessionId.startsWith("cs_mock"),
       paymentIntent: sessionId,

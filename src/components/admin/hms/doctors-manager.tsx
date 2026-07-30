@@ -21,6 +21,10 @@ import {
   type HospitalDoctor,
 } from "@/lib/hms/types";
 import { formatCurrency } from "@/lib/utils";
+import {
+  CONSULTATION_TYPES,
+  SPECIALIZATION_CATALOG,
+} from "@/lib/doctors/constants";
 
 const emptyForm = {
   name: "",
@@ -31,7 +35,7 @@ const emptyForm = {
   qualifications: "MBBS",
   degrees: "",
   certifications: "",
-  specializations: "General",
+  specializations: "Pulmonology",
   experience_years: "5",
   experience_notes: "",
   experience_timeline: "",
@@ -43,6 +47,7 @@ const emptyForm = {
   faqs_text: "",
   consultation_fee: "500",
   video_consultation_fee: "400",
+  consultation_types: ["in_person", "video"] as string[],
   available_days: ["mon", "tue", "wed", "thu", "fri", "sat"] as string[],
   time_slots: "09:00 AM, 10:00 AM, 11:00 AM, 05:00 PM, 06:00 PM",
   consultation_timings: "Mon–Sat · 9:00 AM – 8:00 PM",
@@ -90,6 +95,8 @@ export function DoctorsManager() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [deptFilter, setDeptFilter] = useState<string>("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [open, setOpen] = useState(false);
@@ -97,8 +104,12 @@ export function DoctorsManager() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const params: Record<string, string> = {};
+      if (q) params.q = q;
+      if (statusFilter) params.status = statusFilter;
+      if (deptFilter) params.department_id = deptFilter;
       const [dRes, depRes] = await Promise.all([
-        hmsGet<{ data: HospitalDoctor[] }>("/api/admin/doctors", { q }),
+        hmsGet<{ data: HospitalDoctor[] }>("/api/admin/doctors", params),
         hmsGet<{ data: Department[] }>("/api/admin/departments"),
       ]);
       setDoctors(dRes.data || []);
@@ -108,7 +119,7 @@ export function DoctorsManager() {
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, statusFilter, deptFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 200);
@@ -146,6 +157,9 @@ export function DoctorsManager() {
         .join("\n"),
       consultation_fee: String(d.consultation_fee ?? 500),
       video_consultation_fee: String(d.video_consultation_fee ?? 400),
+      consultation_types: d.consultation_types?.length
+        ? [...d.consultation_types]
+        : ["in_person", "video"],
       available_days: d.available_days || [],
       time_slots: (d.time_slots || []).join(", "),
       consultation_timings: d.consultation_timings || "",
@@ -211,6 +225,10 @@ export function DoctorsManager() {
         faqs: parseFaqs(form.faqs_text),
         consultation_fee: Number(form.consultation_fee) || 0,
         video_consultation_fee: Number(form.video_consultation_fee) || 0,
+        consultation_types:
+          form.consultation_types.length > 0
+            ? form.consultation_types
+            : ["in_person"],
         available_days: form.available_days,
         time_slots: splitCsv(form.time_slots),
         consultation_timings: form.consultation_timings,
@@ -239,10 +257,15 @@ export function DoctorsManager() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Delete this doctor?")) return;
+    if (
+      !confirm(
+        "Remove this doctor from the roster? (Soft delete — history is preserved.)"
+      )
+    )
+      return;
     try {
       await hmsMutate(`/api/admin/doctors/${id}`, "DELETE");
-      toast.success("Doctor deleted");
+      toast.success("Doctor removed from roster");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");
@@ -255,6 +278,31 @@ export function DoctorsManager() {
       available_days: f.available_days.includes(day)
         ? f.available_days.filter((d) => d !== day)
         : [...f.available_days, day],
+    }));
+  };
+
+  const toggleConsultType = (value: string) => {
+    setForm((f) => {
+      const has = f.consultation_types.includes(value);
+      if (has && f.consultation_types.length === 1) {
+        toast.error("Select at least one consultation type");
+        return f;
+      }
+      return {
+        ...f,
+        consultation_types: has
+          ? f.consultation_types.filter((t) => t !== value)
+          : [...f.consultation_types, value],
+      };
+    });
+  };
+
+  const addSpecialization = (spec: string) => {
+    const current = splitCsv(form.specializations);
+    if (current.includes(spec)) return;
+    setForm((f) => ({
+      ...f,
+      specializations: [...current, spec].join(", "),
     }));
   };
 
@@ -272,13 +320,53 @@ export function DoctorsManager() {
         }
       />
 
-      <Input
-        placeholder="Search doctors…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        className="max-w-md"
-        aria-label="Search doctors"
-      />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[200px] flex-1">
+          <Label htmlFor="doctor-search" className="mb-1 block text-xs">
+            Search
+          </Label>
+          <Input
+            id="doctor-search"
+            placeholder="Search name, specialty, slug…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search doctors"
+          />
+        </div>
+        <div>
+          <Label htmlFor="doctor-status" className="mb-1 block text-xs">
+            Status
+          </Label>
+          <select
+            id="doctor-status"
+            className="flex h-11 min-w-[120px] rounded-xl border border-input bg-background px-3 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="doctor-dept" className="mb-1 block text-xs">
+            Department
+          </Label>
+          <select
+            id="doctor-dept"
+            className="flex h-11 min-w-[160px] rounded-xl border border-input bg-background px-3 text-sm"
+            value={deptFilter}
+            onChange={(e) => setDeptFilter(e.target.value)}
+          >
+            <option value="">All departments</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {open && (
         <Card className="border-primary-200 shadow-lift dark:border-primary-900">
@@ -385,14 +473,51 @@ export function DoctorsManager() {
                   }
                 />
               </Field>
-              <Field label="Specializations (comma)">
-                <Input
-                  value={form.specializations}
-                  onChange={(e) =>
-                    setForm({ ...form, specializations: e.target.value })
-                  }
-                />
-              </Field>
+              <div className="md:col-span-2">
+                <Field label="Specializations (comma-separated)">
+                  <Input
+                    value={form.specializations}
+                    onChange={(e) =>
+                      setForm({ ...form, specializations: e.target.value })
+                    }
+                  />
+                </Field>
+                <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Suggested specializations">
+                  {SPECIALIZATION_CATALOG.slice(0, 10).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => addSpecialization(s)}
+                      className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-primary-50 hover:text-primary-700"
+                    >
+                      + {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <Label className="mb-2 block">Consultation types</Label>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Consultation types">
+                  {CONSULTATION_TYPES.map((t) => {
+                    const on = form.consultation_types.includes(t.value);
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggleConsultType(t.value)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
+                          on
+                            ? "bg-primary-600 text-white"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <Field label="Languages (comma)">
                 <Input
                   value={form.languages}

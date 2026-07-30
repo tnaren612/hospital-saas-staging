@@ -3,14 +3,27 @@
  * Keep in sync when you change the SQL schema.
  */
 
-export type UserRole = "patient" | "admin" | "staff";
+export type UserRole =
+  | "super_admin"
+  | "admin"
+  | "doctor"
+  | "patient"
+  | "receptionist"
+  | "lab_technician"
+  | "pharmacist"
+  | "billing"
+  | "finance"
+  | "hr"
+  | "manager";
 
 export type DbAppointmentStatus =
   | "pending"
   | "confirmed"
   | "completed"
   | "cancelled"
-  | "upcoming";
+  | "upcoming"
+  | "no_show"
+  | "checked_in";
 
 export type DbAppointmentType = "in-person" | "video";
 
@@ -48,6 +61,10 @@ export interface DbAppointment {
   type: DbAppointmentType;
   status: DbAppointmentStatus;
   notes: string | null;
+  queue_token?: number | null;
+  checked_in_at?: string | null;
+  cancel_reason?: string | null;
+  cancelled_at?: string | null;
   created_at: string;
   updated_at: string;
 }

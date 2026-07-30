@@ -107,6 +107,7 @@ function mapRow(row: Record<string, unknown>): HealthPackageRecord {
 }
 
 function fallbackPackages(): HealthPackageRecord[] {
+  if (process.env.NEXT_PUBLIC_USE_SUPABASE === "true") return [];
   return getPackages().map((p, i) => ({
     id: p.id,
     slug: p.id,
@@ -138,9 +139,9 @@ function fallbackPackages(): HealthPackageRecord[] {
     booking_enabled: true,
     is_active: true,
     display_order: (i + 1) * 10,
-    seo_title: `${p.name} | Sri Srinivasa Hospital`,
+    seo_title: `${p.name} | ${process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital"}`,
     seo_description: p.description.slice(0, 160),
-    meta_keywords: ["health package", "badvel", "lung"],
+    meta_keywords: ["health package", "healthcare"],
   }));
 }
 
@@ -318,7 +319,7 @@ export function packageJsonLd(
     url: `${siteUrl}/health-packages/${pkg.slug}`,
     brand: {
       "@type": "MedicalOrganization",
-      name: "Sri Srinivasa Hospital",
+      name: process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital",
     },
     offers: {
       "@type": "Offer",
@@ -345,7 +346,7 @@ export function packageServiceJsonLd(
     procedureType: pkg.package_type,
     provider: {
       "@type": "Hospital",
-      name: "Sri Srinivasa Hospital",
+      name: process.env.NEXT_PUBLIC_HOSPITAL_NAME || "Hospital",
     },
   };
 }

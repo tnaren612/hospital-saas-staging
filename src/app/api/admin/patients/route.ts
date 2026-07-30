@@ -1,34 +1,66 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { requireHmsAdmin } from "@/lib/hms/server";
+import {
+  patientCreateSchema,
+  toPatientRow,
+  PATIENT_WRITE_ROLES,
+} from "@/lib/patients/validation";
+import { canAccessFeature, isAdmin } from "@/lib/auth/roles";
+import { checkAuthRateLimit } from "@/lib/auth/rate-limit";
+import { writeAuthEvent } from "@/lib/auth/audit";
+import { getTenantContext, withHospitalId } from "@/lib/hospital/tenant";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({
-  full_name: z.string().min(2).max(120),
-  phone: z.string().regex(/^[6-9]\d{9}$/),
-  email: z.string().email().optional().nullable(),
-  age: z.coerce.number().min(0).max(120).optional().nullable(),
-  gender: z.enum(["male", "female", "other"]).optional().nullable(),
-  address: z.string().max(500).optional(),
-  medical_history: z.string().max(5000).optional(),
-  blood_group: z.string().max(10).optional().nullable(),
-  emergency_contact: z.string().max(120).optional().nullable(),
-  notes: z.string().max(2000).optional(),
-  status: z.enum(["active", "inactive"]).optional(),
-});
+function canWritePatients(role: string | null | undefined): boolean {
+  if (isAdmin(role)) return true;
+  return (PATIENT_WRITE_ROLES as readonly string[]).includes(
+    String(role || "").toLowerCase()
+  );
+}
 
 export async function GET(request: Request) {
   const gate = await requireHmsAdmin();
   if (gate.error || !gate.supabase) return gate.error!;
 
+  const role = gate.session?.profile.role;
+  if (
+    gate.session &&
+    !canAccessFeature(role, "patients") &&
+    !isAdmin(role)
+  ) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim().toLowerCase();
+  const status = searchParams.get("status");
 
-  const { data, error } = await gate.supabase
+  const tenant = await getTenantContext();
+  let query = gate.supabase
     .from("hospital_patients")
     .select("*")
     .order("created_at", { ascending: false });
+
+  if (tenant.hospitalId) {
+    query = query.eq("hospital_id", tenant.hospitalId);
+  }
+  // Soft-delete filter (graceful if column missing)
+  query = query.is("deleted_at", null);
+  if (status) query = query.eq("status", status);
+
+  let { data, error } = await query;
+
+  if (error && /deleted_at|column/i.test(error.message)) {
+    let fallback = gate.supabase
+      .from("hospital_patients")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (status) fallback = fallback.eq("status", status);
+    const retry = await fallback;
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
@@ -44,7 +76,6 @@ export async function GET(request: Request) {
     );
   }
 
-  // Enrich with appointment counts from appointments table (by phone)
   const phones = rows.map((r) => r.phone);
   const apptByPhone: Record<string, number> = {};
   if (phones.length) {
@@ -66,34 +97,77 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const gate = await requireHmsAdmin();
+  const gate = await requireHmsAdmin(PATIENT_WRITE_ROLES as unknown as string[]);
   if (gate.error || !gate.supabase) return gate.error!;
 
-  const body = await request.json().catch(() => null);
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Validation failed" }, { status: 400 });
+  const role = gate.session?.profile.role;
+  if (gate.session && !canWritePatients(role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const d = parsed.data;
-  const { data, error } = await gate.supabase
+  const limit = checkAuthRateLimit(
+    `patient-create:${gate.session?.user.id || "demo"}`
+  );
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Too many requests. Retry in ${limit.retryAfterSeconds}s` },
+      { status: 429 }
+    );
+  }
+
+  const body = await request.json().catch(() => null);
+  const parsed = patientCreateSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const tenant = await getTenantContext();
+  const row = withHospitalId(
+    toPatientRow(parsed.data) as Record<string, unknown>,
+    tenant.hospitalId
+  );
+  let { data, error } = await gate.supabase
     .from("hospital_patients")
-    .insert({
-      full_name: d.full_name.trim(),
-      phone: d.phone.trim(),
-      email: d.email || null,
-      age: d.age ?? null,
-      gender: d.gender ?? null,
-      address: d.address || "",
-      medical_history: d.medical_history || "",
-      blood_group: d.blood_group || null,
-      emergency_contact: d.emergency_contact || null,
-      notes: d.notes || "",
-      status: d.status || "active",
-    })
+    .insert(row)
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error && /column|schema cache/i.test(error.message)) {
+    const legacy = { ...row } as Record<string, unknown>;
+    delete legacy.allergies;
+    delete legacy.emergency_contact_name;
+    delete legacy.emergency_contact_phone;
+    delete legacy.hospital_id;
+    const retry = await gate.supabase
+      .from("hospital_patients")
+      .insert(legacy)
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
+
+  if (error) {
+    // Unique phone conflict
+    if (/unique|duplicate/i.test(error.message)) {
+      return NextResponse.json(
+        { error: "A patient with this phone already exists" },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  await writeAuthEvent({
+    event_type: "admin_action",
+    user_id: gate.session?.user.id,
+    role: role || undefined,
+    success: true,
+    metadata: { action: "patient_create", patient_id: data?.id },
+  });
+
   return NextResponse.json({ data }, { status: 201 });
 }

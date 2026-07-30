@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/env";
 import { sanitizePlainText } from "@/lib/validation";
 import { isEmailConfigured } from "@/lib/notifications/email";
+import { getHospitalConfig } from "@/lib/hospital/service";
 
 export const dynamic = "force-dynamic";
 
@@ -72,14 +73,15 @@ export async function POST(request: Request) {
 
   // Optional notify HR inbox
   if (isEmailConfigured()) {
+    const config = await getHospitalConfig();
     const from =
       process.env.EMAIL_FROM ||
       process.env.RESEND_FROM ||
-      "Sri Srinivasa Hospital <onboarding@resend.dev>";
+      `${config.email.from_name || config.branding.name} <onboarding@resend.dev>`;
     const inbox =
       process.env.CAREERS_INBOX ||
       process.env.HOSPITAL_INBOX ||
-      "info@srisrinivasahospital.com";
+      config.contact.email;
     try {
       await fetch("https://api.resend.com/emails", {
         method: "POST",

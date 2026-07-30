@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Shield, User, KeyRound, Database } from "lucide-react";
+import { HospitalSettingsManager } from "@/components/admin/hospital-settings-manager";
 
 export function AdminSettings({
   email,
@@ -17,14 +18,19 @@ export function AdminSettings({
   userId: string | null;
   authMode: "supabase" | "demo";
 }) {
+  const isAdminUser =
+    role === "admin" || role === "super_admin" || authMode === "demo";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Administrator account and security overview
+          Account security and multi-hospital configuration
         </p>
       </div>
+
+      {isAdminUser && <HospitalSettingsManager />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -66,35 +72,28 @@ export function AdminSettings({
               <li className="flex items-start gap-2">
                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
                 Auth mode:{" "}
-                <Badge variant={authMode === "supabase" ? "success" : "warning"}>
-                  {authMode === "supabase" ? "Supabase Auth" : "Local demo cookie"}
+                <Badge
+                  variant={authMode === "supabase" ? "success" : "warning"}
+                >
+                  {authMode === "supabase"
+                    ? "Supabase Auth"
+                    : "Local demo cookie"}
                 </Badge>
               </li>
               <li className="flex items-start gap-2">
                 <Database className="mt-0.5 h-4 w-4 shrink-0" />
-                Admin APIs require authenticated session; service role is never
-                sent to the browser.
+                Hospital config is tenant-scoped; secrets stay in env/vault, not
+                the settings JSON.
               </li>
               <li className="flex items-start gap-2">
                 <Shield className="mt-0.5 h-4 w-4 shrink-0" />
-                Row Level Security: only <code>role = admin</code> can update
-                appointments and CMS tables.
+                Super_admin / admin can edit hospital settings for this
+                deployment slug.
               </li>
             </ul>
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardContent className="p-6 text-sm text-muted-foreground">
-          <p className="font-semibold text-foreground">Change password</p>
-          <p className="mt-2">
-            Password resets are managed in Supabase Dashboard → Authentication →
-            Users, or via the Supabase password recovery email flow. Do not store
-            plaintext passwords in this application.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

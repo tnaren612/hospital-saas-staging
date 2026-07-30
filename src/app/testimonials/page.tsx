@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
   title: "Testimonials",
-  description: "Patient stories and reviews for Sri Srinivasa Hospital and Dr. Varaprasad Venkata Sumanth.",
+  description: "Patient stories and reviews shared by patients and families.",
   path: "/testimonials",
 });
 

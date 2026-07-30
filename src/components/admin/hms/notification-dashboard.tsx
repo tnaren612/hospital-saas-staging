@@ -22,8 +22,19 @@ import type {
 } from "@/lib/notifications/core/types";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
+import { useAdminSession } from "@/components/admin/admin-session-context";
+import { canAccessNotifications } from "@/lib/dashboard/widgets";
+import { Skeleton } from "@/components/admin/ui/skeleton";
+
+type ChannelHealth = {
+  email?: { configured: boolean; mode: string };
+  whatsapp?: { configured: boolean; mode: string };
+  sms?: { configured: boolean; mode: string };
+};
 
 export function NotificationDashboard() {
+  const { role, mode } = useAdminSession();
+  const allowed = canAccessNotifications(role, mode);
   const [stats, setStats] = useState<NotificationStats | null>(null);
   const [items, setItems] = useState<NotificationRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -32,8 +43,13 @@ export function NotificationDashboard() {
   const [channel, setChannel] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
+  const [providers, setProviders] = useState<ChannelHealth | null>(null);
 
   const load = useCallback(async () => {
+    if (!allowed) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -44,9 +60,10 @@ export function NotificationDashboard() {
       if (channel) params.set("channel", channel);
       if (status) params.set("status", status);
 
-      const [listRes, statsRes] = await Promise.all([
+      const [listRes, statsRes, healthRes] = await Promise.all([
         fetch(`/api/notifications?${params}`, { cache: "no-store" }),
         fetch("/api/notifications/stats", { cache: "no-store" }),
+        fetch("/api/health", { cache: "no-store" }),
       ]);
       const listJson = await listRes.json();
       const statsJson = await statsRes.json();
@@ -55,16 +72,35 @@ export function NotificationDashboard() {
       setItems(listJson.data || []);
       setTotal(listJson.total || 0);
       setStats(statsJson.stats || null);
+      if (healthRes.ok) {
+        const health = await healthRes.json();
+        setProviders({
+          email: health.providers?.email,
+          whatsapp: health.providers?.whatsapp,
+          sms: health.providers?.sms,
+        });
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
-  }, [page, q, channel, status]);
+  }, [page, q, channel, status, allowed]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  if (!allowed) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-8 text-center" role="alert">
+        <h1 className="text-xl font-bold">Notifications</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your role does not include notification center access.
+        </p>
+      </div>
+    );
+  }
 
   const retryOne = async (id: string) => {
     try {
@@ -159,36 +195,66 @@ export function NotificationDashboard() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={Mail}
-          label="Emails sent"
-          value={stats?.emails_sent ?? "—"}
-        />
-        <StatCard
-          icon={MessageCircle}
-          label="WhatsApp generated"
-          value={stats?.whatsapp_generated ?? "—"}
-        />
-        <StatCard
-          icon={Smartphone}
-          label="SMS (sent / pending)"
-          value={
-            stats
-              ? `${stats.sms_sent} / ${stats.sms_pending}`
-              : "—"
-          }
-        />
-        <StatCard
-          icon={Bell}
-          label="Success rate"
-          value={stats ? `${stats.success_rate}%` : "—"}
-          hint={
-            stats
-              ? `Failures ${stats.failures} · Retries ${stats.retries} · Top: ${stats.most_used_channel}`
-              : undefined
-          }
-        />
+      {loading && !stats ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            icon={Mail}
+            label="Emails sent"
+            value={stats?.emails_sent ?? "—"}
+          />
+          <StatCard
+            icon={MessageCircle}
+            label="WhatsApp generated"
+            value={stats?.whatsapp_generated ?? "—"}
+          />
+          <StatCard
+            icon={Smartphone}
+            label="SMS (sent / pending)"
+            value={
+              stats ? `${stats.sms_sent} / ${stats.sms_pending}` : "—"
+            }
+          />
+          <StatCard
+            icon={Bell}
+            label="Success rate"
+            value={stats ? `${stats.success_rate}%` : "—"}
+            hint={
+              stats
+                ? `Failures ${stats.failures} · Retries ${stats.retries} · Top: ${stats.most_used_channel}`
+                : undefined
+            }
+          />
+        </div>
+      )}
+
+      {/* Provider health strip */}
+      <div className="grid gap-2 sm:grid-cols-3" aria-label="Provider status">
+        {(
+          [
+            ["Email", providers?.email],
+            ["WhatsApp", providers?.whatsapp],
+            ["SMS", providers?.sms],
+          ] as const
+        ).map(([label, p]) => (
+          <div
+            key={label}
+            className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-2 text-xs"
+          >
+            <span className="font-medium">{label} provider</span>
+            <Badge
+              variant={p?.configured ? "success" : "secondary"}
+              className="capitalize"
+            >
+              {p?.configured ? p.mode || "live" : "not configured"}
+            </Badge>
+          </div>
+        ))}
       </div>
 
       <Card>

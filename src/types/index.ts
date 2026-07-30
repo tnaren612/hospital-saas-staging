@@ -7,7 +7,9 @@ export type AppointmentStatus =
   | "confirmed"
   | "completed"
   | "cancelled"
-  | "upcoming";
+  | "upcoming"
+  | "no_show"
+  | "checked_in";
 
 export type TimePeriod = "morning" | "afternoon" | "evening";
 
@@ -168,6 +170,10 @@ export interface Appointment {
   createdAt: string;
   notes?: string;
   bookingRef?: string;
+  /** Daily reception queue token */
+  queueToken?: number | null;
+  checkedInAt?: string | null;
+  cancelReason?: string | null;
   /** Billing — from appointments.payment_status */
   paymentStatus?: string;
   invoiceId?: string;

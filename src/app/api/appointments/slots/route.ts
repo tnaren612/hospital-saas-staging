@@ -12,7 +12,7 @@ import {
 } from "@/lib/supabase/env";
 import { createClient } from "@supabase/supabase-js";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 15;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -23,30 +23,57 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "date is required" }, { status: 400 });
   }
 
+  const cacheHeaders = {
+    "Cache-Control":
+      "public, s-maxage=15, stale-while-revalidate=60, max-age=10",
+  };
+
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
-    return NextResponse.json({
-      booked: [],
-      dayAvailable: true,
-      dayStatus: "available",
-      mode: "local",
-    });
+    return NextResponse.json(
+      {
+        booked: [],
+        dayAvailable: true,
+        dayStatus: "available",
+        mode: "local",
+      },
+      { headers: cacheHeaders }
+    );
   }
 
   try {
-    const supabase = createClient(getSupabaseUrl()!, getSupabaseAnonKey()!);
+    const supabase = createClient(getSupabaseUrl()!, getSupabaseAnonKey()!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
-    const { data, error } = await supabase
-      .from("appointments")
-      .select("time_slot")
-      .eq("date", date)
-      .eq("doctor_id", doctorId)
-      .neq("status", "cancelled");
+    // Parallel: booked slots + leave in one wait
+    const leavePromise =
+      doctorId.length === 36
+        ? supabase
+            .from("doctor_availability")
+            .select("status, note")
+            .eq("doctor_id", doctorId)
+            .eq("date", date)
+            .maybeSingle()
+        : Promise.resolve({ data: null as { status?: string; note?: string } | null });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    const [slotsRes, leaveRes] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("time_slot")
+        .eq("date", date)
+        .eq("doctor_id", doctorId)
+        .not("status", "in", '("cancelled","no_show")'),
+      leavePromise,
+    ]);
+
+    if (slotsRes.error) {
+      return NextResponse.json(
+        { error: slotsRes.error.message },
+        { status: 400 }
+      );
     }
 
-    const booked = (data || []).map((r: { time_slot: string }) =>
+    const booked = (slotsRes.data || []).map((r: { time_slot: string }) =>
       String(r.time_slot)
     );
 
@@ -54,34 +81,29 @@ export async function GET(request: Request) {
     let dayStatus: string = "available";
     let dayNote = "";
 
-    if (doctorId.length === 36) {
-      const { data: leave } = await supabase
-        .from("doctor_availability")
-        .select("status, note")
-        .eq("doctor_id", doctorId)
-        .eq("date", date)
-        .maybeSingle();
-
-      if (leave) {
-        dayStatus = String(leave.status);
-        dayNote = String(leave.note || "");
-        if (
-          leave.status === "on_leave" ||
-          leave.status === "holiday" ||
-          leave.status === "emergency"
-        ) {
-          dayAvailable = false;
-        }
+    const leave = leaveRes.data;
+    if (leave) {
+      dayStatus = String(leave.status);
+      dayNote = String(leave.note || "");
+      if (
+        leave.status === "on_leave" ||
+        leave.status === "holiday" ||
+        leave.status === "emergency"
+      ) {
+        dayAvailable = false;
       }
     }
 
-    return NextResponse.json({
-      booked,
-      dayAvailable,
-      dayStatus,
-      dayNote,
-      mode: "supabase",
-    });
+    return NextResponse.json(
+      {
+        booked,
+        dayAvailable,
+        dayStatus,
+        dayNote,
+        mode: "supabase",
+      },
+      { headers: cacheHeaders }
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "Server error";
     return NextResponse.json({ error: message }, { status: 500 });

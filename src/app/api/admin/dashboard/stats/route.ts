@@ -24,9 +24,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRow = Record<string, any>;
+
 async function safeSelect(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: PromiseLike<{ data: any; error: { message: string } | null }>
+  query: PromiseLike<{ data: unknown; error: { message: string } | null }>
 ) {
   try {
     const res = await query;
@@ -135,23 +137,15 @@ export async function GET() {
     return NextResponse.json({ error: aptsRes.error.message }, { status: 400 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const appointments: any[] = aptsRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const doctors: any[] = doctorsRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const departments: any[] = deptsRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const packages: any[] = packagesRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const blogRows: any[] =
-    blogRes.data || blogLegacyRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const gallery: any[] = galleryRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const availToday: any[] = availRes.data || [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const notifications: any[] = notifRes.data || [];
+  const appointments: DbRow[] = (aptsRes.data as DbRow[]) || [];
+  const doctors: DbRow[] = (doctorsRes.data as DbRow[]) || [];
+  const departments: DbRow[] = (deptsRes.data as DbRow[]) || [];
+  const packages: DbRow[] = (packagesRes.data as DbRow[]) || [];
+  const blogRows: DbRow[] =
+    (blogRes.data as DbRow[]) || (blogLegacyRes.data as DbRow[]) || [];
+  const gallery: DbRow[] = (galleryRes.data as DbRow[]) || [];
+  const availToday: DbRow[] = (availRes.data as DbRow[]) || [];
+  const notifications: DbRow[] = (notifRes.data as DbRow[]) || [];
 
   const fee = (r: { consultation_fee?: number | null; status?: string }) => {
     if (r.status === "cancelled") return 0;
@@ -606,6 +600,50 @@ export async function GET() {
 
   // silence unused
   void last30;
+
+  // Operational KPIs (lab/pharmacy/Rx) — non-fatal
+  try {
+    const { getPhase2Stats } = await import("@/lib/phase2/service");
+    const ops = await getPhase2Stats();
+    payload.operations = {
+      lab_pending: ops.lab_pending || 0,
+      pharmacy_sales_today: ops.pharmacy_sales_today || 0,
+      low_stock: ops.low_stock || 0,
+      expiring_meds: ops.expiring_meds || 0,
+      rx_today: ops.rx_today || 0,
+      bills_today: ops.bills_today || 0,
+      revenue_today: ops.revenue_today || 0,
+    };
+    payload.cards = [
+      ...payload.cards,
+      {
+        key: "lab_pending",
+        label: "Lab orders pending",
+        value: ops.lab_pending || 0,
+        href: "/admin/lab",
+      },
+      {
+        key: "pharmacy_low_stock",
+        label: "Low stock medicines",
+        value: ops.low_stock || 0,
+        href: "/admin/pharmacy",
+      },
+      {
+        key: "rx_today",
+        label: "Prescriptions today",
+        value: ops.rx_today || 0,
+        href: "/admin/prescriptions",
+      },
+      {
+        key: "ops_revenue",
+        label: "Ops revenue today",
+        value: ops.revenue_today || 0,
+        href: "/admin/hospital-billing",
+      },
+    ];
+  } catch {
+    /* tables may be missing */
+  }
 
   return NextResponse.json(payload);
 }

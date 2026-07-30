@@ -14,20 +14,28 @@ export default async function AdminProtectedLayout({
   let email: string | null = null;
   let name: string | null = null;
   let mode: "supabase" | "demo" = "demo";
+  let role: string | null = "admin";
 
   if (isAdminAuthEnabled()) {
     const session = await getAdminSession();
     email = session?.profile.email || session?.user.email || null;
     name = session?.profile.full_name || null;
+    role = session?.profile.role || "admin";
     mode = "supabase";
-  } else if (cookies().get("ssh_admin_demo")?.value === "1") {
+  } else if ((await cookies()).get("ssh_admin_demo")?.value === "1") {
     email = "demo@local";
     name = "Demo Admin";
+    role = "admin";
     mode = "demo";
   }
 
   return (
-    <AdminLayoutClient adminEmail={email} adminName={name} mode={mode}>
+    <AdminLayoutClient
+      adminEmail={email}
+      adminName={name}
+      mode={mode}
+      role={role}
+    >
       {children}
     </AdminLayoutClient>
   );

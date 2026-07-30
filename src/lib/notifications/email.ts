@@ -85,8 +85,8 @@ export async function sendAppointmentConfirmationEmail(
   const from =
     process.env.EMAIL_FROM ||
     process.env.RESEND_FROM ||
-    "Sri Srinivasa Hospital <onboarding@resend.dev>";
-  const hospital = payload.hospitalName || "Sri Srinivasa Hospital";
+    "Hospital <onboarding@resend.dev>";
+  const hospital = payload.hospitalName || "Hospital";
   const phone = payload.hospitalPhone || "";
 
   const subject = `Appointment confirmed — ${payload.date} ${payload.timeSlot}`;
@@ -190,8 +190,8 @@ export async function sendPaymentConfirmationEmail(
   const from =
     process.env.EMAIL_FROM ||
     process.env.RESEND_FROM ||
-    "Sri Srinivasa Hospital <onboarding@resend.dev>";
-  const hospital = payload.hospitalName || "Sri Srinivasa Hospital";
+    "Hospital <onboarding@resend.dev>";
+  const hospital = payload.hospitalName || "Hospital";
   const currency = payload.currency || "INR";
   const amountLabel =
     currency === "INR"

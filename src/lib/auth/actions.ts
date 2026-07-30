@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import {
   createServerSupabaseClient,
   createServiceRoleClient,
@@ -10,19 +11,34 @@ import {
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { adminLoginSchema } from "@/lib/validation";
 import { isAdminAuthEnabled } from "@/lib/auth/admin";
+import { checkAuthRateLimit } from "@/lib/auth/rate-limit";
+import { writeAuthEvent } from "@/lib/auth/audit";
 
 export type AuthActionResult = {
   ok: boolean;
   error?: string;
-  code?: "INVALID" | "NOT_ADMIN" | "CONFIG" | "UNKNOWN";
+  code?: "INVALID" | "NOT_ADMIN" | "CONFIG" | "UNKNOWN" | "RATE_LIMIT";
+  /** Role-based post-login path */
+  redirectTo?: string;
+  info?: string;
 };
 
 const DEMO_COOKIE = "ssh_admin_demo";
 
+function siteUrl(): string {
+  const raw =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_URL ||
+    "";
+  if (!raw) return "";
+  if (raw.startsWith("http")) return raw.replace(/\/$/, "");
+  return `https://${raw.replace(/\/$/, "")}`;
+}
+
 /**
  * Ensure a profiles row exists after Auth signup/login.
  * Uses service role only on the server after a successful password login.
- * Does NOT grant admin — role stays patient unless already admin.
+ * Does NOT grant admin — role stays patient unless already staff.
  */
 async function ensureProfileRow(userId: string, email: string | undefined) {
   try {
@@ -57,8 +73,8 @@ async function ensureProfileRow(userId: string, email: string | undefined) {
 }
 
 /**
- * Production admin login via Supabase Auth (email + password).
- * Requires profiles.role = 'admin'.
+ * Production staff login via Supabase Auth (email + password).
+ * Requires profiles.role ∈ hospital staff roles.
  */
 export async function adminLoginAction(
   _prev: AuthActionResult | null,
@@ -84,17 +100,26 @@ export async function adminLoginAction(
   const { email, password } = parsed.data;
   const normalizedEmail = email.trim().toLowerCase();
 
+  const limit = checkAuthRateLimit(`admin-login:${normalizedEmail}`);
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      error: `Too many login attempts. Try again in ${limit.retryAfterSeconds}s.`,
+      code: "RATE_LIMIT",
+    };
+  }
+
   // Local-only fallback when Supabase keys are not configured
   if (!isAdminAuthEnabled()) {
     if (password === "admin123") {
-      cookies().set(DEMO_COOKIE, "1", {
+      (await cookies()).set(DEMO_COOKIE, "1", {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
         path: "/",
         maxAge: raw.remember ? 60 * 60 * 24 * 14 : 60 * 60 * 8,
       });
-      return { ok: true };
+      return { ok: true, redirectTo: "/admin/dashboard" };
     }
     return {
       ok: false,
@@ -105,13 +130,19 @@ export async function adminLoginAction(
   }
 
   try {
-    const supabase = createServerSupabaseClient();
+    const supabase = await createServerSupabaseClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password,
     });
 
     if (error || !data.user) {
+      await writeAuthEvent({
+        event_type: "login_failure",
+        email: normalizedEmail,
+        success: false,
+        metadata: { portal: "admin", message: error?.message },
+      });
       return {
         ok: false,
         error:
@@ -145,24 +176,34 @@ export async function adminLoginAction(
       role = ensured?.role ? String(ensured.role) : null;
     }
 
-    if (!role || role.toLowerCase() !== "admin") {
+    const { canonicalizeRole, isHospitalStaff, homePathForRole } =
+      await import("@/lib/auth/roles");
+    const appRole = canonicalizeRole(role);
+    if (!appRole || !isHospitalStaff(appRole)) {
       await supabase.auth.signOut();
+      await writeAuthEvent({
+        event_type: "role_denied",
+        user_id: data.user.id,
+        email: normalizedEmail,
+        role: role || undefined,
+        success: false,
+        metadata: { portal: "admin" },
+      });
       return {
         ok: false,
         error:
-          "Access denied. This account is not an administrator. " +
-          "In Supabase SQL run: update public.profiles set role = 'admin' where email = '" +
-          normalizedEmail +
-          "';",
+          "Access denied. This account is not hospital staff. " +
+          "Set profiles.role to one of: super_admin, admin, doctor, receptionist, " +
+          "lab_technician, pharmacist, billing, finance, hr, manager.",
         code: "NOT_ADMIN",
       };
     }
 
     // Clear any leftover demo cookie
-    cookies().delete(DEMO_COOKIE);
+    (await cookies()).delete(DEMO_COOKIE);
 
     if (raw.remember) {
-      cookies().set("ssh_admin_remember", "1", {
+      (await cookies()).set("ssh_admin_remember", "1", {
         httpOnly: true,
         sameSite: "lax",
         secure: process.env.NODE_ENV === "production",
@@ -170,11 +211,20 @@ export async function adminLoginAction(
         maxAge: 60 * 60 * 24 * 30,
       });
     } else {
-      cookies().delete("ssh_admin_remember");
+      (await cookies()).delete("ssh_admin_remember");
     }
 
+    await writeAuthEvent({
+      event_type: "login_success",
+      user_id: data.user.id,
+      email: normalizedEmail,
+      role: appRole,
+      success: true,
+      metadata: { portal: "admin" },
+    });
+
     revalidatePath("/admin", "layout");
-    return { ok: true };
+    return { ok: true, redirectTo: homePathForRole(appRole) };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Login failed";
     // Common misconfig: service role missing when ensuring profile
@@ -190,13 +240,87 @@ export async function adminLoginAction(
   }
 }
 
+/**
+ * Staff password reset email (same Supabase flow as patient; lands on patient reset UI
+ * or can be extended to /admin/reset-password later).
+ */
+export async function adminForgotPasswordAction(
+  _prev: AuthActionResult | null,
+  formData: FormData
+): Promise<AuthActionResult> {
+  if (!isAdminAuthEnabled()) {
+    return {
+      ok: false,
+      error: "Password reset requires Supabase Auth.",
+      code: "CONFIG",
+    };
+  }
+
+  const email = String(formData.get("email") || "")
+    .trim()
+    .toLowerCase();
+  if (!z.string().email().safeParse(email).success) {
+    return { ok: false, error: "Enter a valid email", code: "INVALID" };
+  }
+
+  const limit = checkAuthRateLimit(`admin-forgot:${email}`);
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      error: `Too many reset requests. Try again in ${limit.retryAfterSeconds}s.`,
+      code: "RATE_LIMIT",
+    };
+  }
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const base = siteUrl();
+    const redirectTo = base
+      ? `${base}/auth/callback?next=${encodeURIComponent("/patient/reset-password")}`
+      : undefined;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    await writeAuthEvent({
+      event_type: "password_reset_request",
+      email,
+      success: !error,
+      metadata: { portal: "admin", message: error?.message },
+    });
+
+    if (error) {
+      console.warn("[admin-forgot]", error.message);
+    }
+
+    return {
+      ok: true,
+      info: "If an account exists for that email, a reset link has been sent.",
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Request failed";
+    return { ok: false, error: message, code: "UNKNOWN" };
+  }
+}
+
 export async function adminLogoutAction(): Promise<void> {
-  cookies().delete(DEMO_COOKIE);
-  cookies().delete("ssh_admin_remember");
+  (await cookies()).delete(DEMO_COOKIE);
+  (await cookies()).delete("ssh_admin_remember");
 
   if (hasSupabaseConfig()) {
     try {
-      const supabase = createServerSupabaseClient();
+      const supabase = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      await writeAuthEvent({
+        event_type: "logout",
+        user_id: user?.id,
+        email: user?.email,
+        success: true,
+        metadata: { portal: "admin" },
+      });
       await supabase.auth.signOut();
     } catch {
       // ignore
@@ -208,5 +332,5 @@ export async function adminLogoutAction(): Promise<void> {
 }
 
 export async function hasDemoAdminCookie(): Promise<boolean> {
-  return cookies().get(DEMO_COOKIE)?.value === "1";
+  return (await cookies()).get(DEMO_COOKIE)?.value === "1";
 }

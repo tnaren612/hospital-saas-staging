@@ -1,13 +1,38 @@
 /**
- * Server-side HMS helpers — admin session + Supabase client.
+ * Server-side HMS helpers — staff session + Supabase client.
  */
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getAdminSession, isAdminAuthEnabled } from "@/lib/auth/admin";
+import { canonicalizeRole, isAdmin, type AppRole } from "@/lib/auth/roles";
+import { assertSameOrigin } from "@/lib/auth/csrf";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-export async function requireHmsAdmin() {
+/**
+ * H-10: block cross-site cookie POSTs to staff APIs.
+ * Call on mutating handlers (or via requireHmsAdminMutating).
+ */
+export function requireSameOriginForMutation(request: Request): NextResponse | null {
+  try {
+    const check = assertSameOrigin(request, { allowMissing: false });
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: "Forbidden", code: "CSRF_ORIGIN", reason: check.reason },
+        { status: 403 }
+      );
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Require authenticated hospital staff. Optionally restrict to listed roles
+ * (super_admin + admin always allowed).
+ */
+export async function requireHmsAdmin(allowedRoles?: string[]) {
   if (isAdminAuthEnabled()) {
     const session = await getAdminSession();
     if (!session) {
@@ -15,29 +40,46 @@ export async function requireHmsAdmin() {
         error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
         supabase: null as null,
         mode: "supabase" as const,
+        session: null as null,
       };
+    }
+    if (allowedRoles?.length) {
+      const role = canonicalizeRole(session.profile.role);
+      const allowed = new Set(
+        allowedRoles.map((r) => canonicalizeRole(r) || r.toLowerCase())
+      );
+      const ok =
+        isAdmin(role) || (role !== null && allowed.has(role as AppRole));
+      if (!ok) {
+        return {
+          error: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+          supabase: null as null,
+          mode: "supabase" as const,
+          session: null as null,
+        };
+      }
     }
     return {
       error: null,
-      supabase: createServerSupabaseClient(),
+      supabase: await createServerSupabaseClient(),
       mode: "supabase" as const,
       session,
     };
   }
 
-  const demo = cookies().get("ssh_admin_demo")?.value === "1";
+  const demo = (await cookies()).get("ssh_admin_demo")?.value === "1";
   if (!demo) {
     return {
       error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
       supabase: null as null,
       mode: "local" as const,
+      session: null as null,
     };
   }
 
-  // Local demo: still try Supabase if keys exist for HMS tables
   try {
-    const supabase = createServerSupabaseClient();
-    return { error: null, supabase, mode: "local" as const };
+    const supabase = await createServerSupabaseClient();
+    return { error: null, supabase, mode: "local" as const, session: null };
   } catch {
     return {
       error: NextResponse.json(
@@ -49,6 +91,7 @@ export async function requireHmsAdmin() {
       ),
       supabase: null as null,
       mode: "local" as const,
+      session: null as null,
     };
   }
 }
@@ -63,7 +106,7 @@ export function slugify(input: string): string {
 }
 
 export async function createNotification(
-  supabase: ReturnType<typeof createServerSupabaseClient>,
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
   payload: {
     type: string;
     title: string;

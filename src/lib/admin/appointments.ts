@@ -24,10 +24,13 @@ export function mapDbAppointment(row: Record<string, unknown>): Appointment {
     timeSlot: r.time_slot,
     period: r.period,
     type: r.type,
-    status: r.status,
+    status: r.status as Appointment["status"],
     createdAt: r.created_at,
     notes: r.notes ?? undefined,
     bookingRef: r.booking_ref ?? undefined,
+    queueToken: r.queue_token ?? null,
+    checkedInAt: r.checked_in_at ?? null,
+    cancelReason: r.cancel_reason ?? null,
   };
 }
 
@@ -64,6 +67,8 @@ export const STATUS_OPTIONS: AppointmentStatus[] = [
   "pending",
   "confirmed",
   "upcoming",
+  "checked_in",
   "completed",
+  "no_show",
   "cancelled",
 ];

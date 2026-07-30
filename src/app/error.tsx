@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { Home, RefreshCw, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
 export default function Error({
   error,
@@ -12,6 +13,7 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { config } = useHospitalConfig();
   useEffect(() => {
     console.error("[app-error]", error?.digest || error?.message);
     try {
@@ -60,7 +62,7 @@ export default function Error({
               Back to Home
             </Button>
           </Link>
-          <a href="tel:+918121864863">
+          <a href={`tel:${config.contact.emergency_phone}`}>
             <Button
               variant="emergency"
               className="w-full min-h-11 min-[400px]:w-auto"

@@ -9,10 +9,14 @@ import {
   CalendarDays,
   CalendarPlus,
   CheckCircle2,
+  ClipboardList,
   FileText,
+  FlaskConical,
   Images,
   Loader2,
   Package,
+  Pill,
+  Receipt,
   RefreshCw,
   Search,
   Stethoscope,
@@ -48,6 +52,12 @@ import type {
   DashboardSummary,
   SearchResultGroup,
 } from "@/lib/dashboard/service";
+import { useAdminSession } from "@/components/admin/admin-session-context";
+import {
+  canViewWidgetSection,
+  filterMetricCards,
+  filterQuickActions,
+} from "@/lib/dashboard/widgets";
 
 const PIE_COLORS = [
   "#1a5ff5",
@@ -59,26 +69,37 @@ const PIE_COLORS = [
   "#059669",
 ];
 
-const QUICK_ACTIONS = [
-  {
-    href: "/admin/appointments",
-    label: "New Appointment",
-    icon: CalendarPlus,
-  },
-  { href: "/admin/doctors", label: "Add Doctor", icon: UserPlus },
-  { href: "/admin/departments", label: "Add Department", icon: Building2 },
-  { href: "/admin/packages", label: "Add Package", icon: Package },
-  { href: "/admin/blog", label: "Add Blog", icon: FileText },
-  { href: "/admin/gallery", label: "Upload Image", icon: Upload },
-];
+const ACTION_ICONS: Record<string, typeof CalendarPlus> = {
+  "/admin/appointments": CalendarPlus,
+  "/admin/doctors": UserPlus,
+  "/admin/departments": Building2,
+  "/admin/packages": Package,
+  "/admin/blog": FileText,
+  "/admin/gallery": Upload,
+  "/admin/lab": FlaskConical,
+  "/admin/pharmacy": Pill,
+  "/admin/prescriptions": ClipboardList,
+  "/admin/hospital-billing": Receipt,
+  "/admin/notifications": Bell,
+};
 
 export function AdminDashboardHome() {
+  const { role, mode } = useAdminSession();
   const [stats, setStats] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResultGroup[]>([]);
+
+  const quickActions = useMemo(
+    () => filterQuickActions(role, mode),
+    [role, mode]
+  );
+  const visibleCards = useMemo(
+    () => filterMetricCards(stats?.cards || [], role, mode),
+    [stats?.cards, role, mode]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,6 +164,10 @@ export function AdminDashboardHome() {
         visitors: Users,
         rev_today: IndianRupee,
         rev_month: IndianRupee,
+        lab_pending: FlaskConical,
+        pharmacy_low_stock: Pill,
+        rx_today: ClipboardList,
+        ops_revenue: Receipt,
       }) as Record<string, typeof CalendarDays>,
     []
   );
@@ -239,17 +264,23 @@ export function AdminDashboardHome() {
         </CardContent>
       </Card>
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap gap-2">
-        {QUICK_ACTIONS.map((a) => (
-          <Link key={a.href + a.label} href={a.href}>
-            <Button size="sm" variant="outline" className="gap-1.5">
-              <a.icon className="h-3.5 w-3.5" />
-              {a.label}
-            </Button>
-          </Link>
-        ))}
-      </div>
+      {/* Quick actions (RBAC filtered) */}
+      {canViewWidgetSection(role, "quick_actions", mode) &&
+        quickActions.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label="Quick actions">
+            {quickActions.map((a) => {
+              const Icon = ACTION_ICONS[a.href] || Activity;
+              return (
+                <Link key={a.href + a.label} href={a.href}>
+                  <Button size="sm" variant="outline" className="gap-1.5">
+                    <Icon className="h-3.5 w-3.5" />
+                    {a.label}
+                  </Button>
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
       {error && (
         <div className="rounded-xl border border-emergency/30 bg-emergency/5 px-4 py-3 text-sm text-emergency">
@@ -266,7 +297,7 @@ export function AdminDashboardHome() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {(stats?.cards || []).map((c) => {
+          {visibleCards.map((c) => {
             const Icon = cardIcon[c.key] || Activity;
             const inner = (
               <Card className="h-full transition hover:shadow-lift">

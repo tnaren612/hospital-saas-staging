@@ -11,10 +11,8 @@ const schema = z.object({
   slug: z.string().optional(),
 });
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const gate = await requireHmsAdmin();
   if (gate.error || !gate.supabase) return gate.error!;
 
@@ -40,10 +38,8 @@ export async function PATCH(
   return NextResponse.json({ data });
 }
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const gate = await requireHmsAdmin();
   if (gate.error || !gate.supabase) return gate.error!;
 

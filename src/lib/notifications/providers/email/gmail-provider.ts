@@ -48,7 +48,7 @@ export class GmailEmailProvider implements EmailProvider {
     const from =
       process.env.EMAIL_FROM ||
       process.env.GMAIL_FROM ||
-      `Sri Srinivasa Hospital <${user}>`;
+      `Hospital <${user}>`;
 
     try {
       const nodemailer = await import("nodemailer");

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = createMetadata({
   title: "Health Packages",
   description:
-    "Lung health check packages, COPD screening, executive checkup, senior care, and post-COVID recovery packages at Sri Srinivasa Hospital, Badvel.",
+    "Explore configurable preventive and specialist health packages.",
   path: "/health-packages",
 });
 
