@@ -64,7 +64,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Build staging-connected application
         run: npm run build
-        env: &staging-env
+        env:
           NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
           NEXT_PUBLIC_USE_SUPABASE: "true"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
@@ -75,10 +75,16 @@ jobs:
       - name: Full credentialed Playwright suite
         run: npm run test:e2e
         env:
-          <<: *staging-env
           CI: "true"
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
           PLAYWRIGHT_WEB_SERVER_COMMAND: npm run start
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+          NEXT_PUBLIC_USE_SUPABASE: "true"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_HOSPITAL_SLUG: hospital-alpha
+          HOSPITAL_HOST_MAP: '{"127.0.0.1":"hospital-alpha","localhost":"hospital-alpha"}'
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
           E2E_DOCTOR_EMAIL: ${{ secrets.E2E_DOCTOR_EMAIL }}
