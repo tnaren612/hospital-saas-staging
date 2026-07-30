@@ -33,6 +33,7 @@ export const medicineSchema = z.object({
   generic_name: z.string().max(200).optional(),
   manufacturer: z.string().max(200).optional(),
   batch_number: z.string().max(100).optional(),
+  sku: z.string().max(100).optional(),
   category: z.string().max(100).optional(),
   purchase_price: z.number().nonnegative(),
   selling_price: z.number().nonnegative(),

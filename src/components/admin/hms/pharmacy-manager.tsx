@@ -25,7 +25,7 @@ export function PharmacyManager() {
   const [stockAddQty, setStockAddQty] = useState(1);
   const [patientName, setPatientName] = useState("Walk-in Patient");
   const [actionError, setActionError] = useState("");
-  const [newSku, setNewSku] = useState({ name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
+  const [newSku, setNewSku] = useState({ sku: "", name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,7 +145,7 @@ export function PharmacyManager() {
       if (!res.ok) throw new Error("New SKU could not be created. Please check the details.");
       const json = await res.json();
       toast.success(`${json.data.name} added to pharmacy stock`);
-      setNewSku({ name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
+      setNewSku({ sku: "", name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
       await load();
     } catch (e) {
       const message = e instanceof Error ? e.message : "New SKU could not be created.";
@@ -254,7 +254,11 @@ export function PharmacyManager() {
       <Card>
         <CardContent className="grid gap-3 p-5 sm:grid-cols-5">
           <div className="sm:col-span-2">
-            <Label>New SKU / medicine name</Label>
+            <Label>SKU / barcode (scan or type)</Label>
+            <Input autoComplete="off" className="mt-1" value={newSku.sku} onChange={(e) => setNewSku({ ...newSku, sku: e.target.value })} placeholder="Scan or enter SKU" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>New medicine name</Label>
             <Input className="mt-1" value={newSku.name} onChange={(e) => setNewSku({ ...newSku, name: e.target.value })} placeholder="e.g. Azithromycin 500" />
           </div>
           <div><Label>Purchase price</Label><Input className="mt-1" type="number" min={0} value={newSku.purchase_price} onChange={(e) => setNewSku({ ...newSku, purchase_price: Number(e.target.value) || 0 })} /></div>

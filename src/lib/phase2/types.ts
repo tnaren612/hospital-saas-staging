@@ -61,6 +61,7 @@ export type Medicine = {
   generic_name?: string;
   manufacturer: string;
   batch_number: string;
+  sku?: string;
   category?: string;
   purchase_price: number;
   selling_price: number;

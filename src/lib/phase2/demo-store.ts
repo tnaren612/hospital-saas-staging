@@ -184,6 +184,7 @@ export const demoPhase2 = {
     }
     const row: Medicine = {
       id: med.id || id("med"),
+      sku: med.sku || "",
       name: med.name,
       generic_name: med.generic_name || "",
       manufacturer: med.manufacturer || "",
