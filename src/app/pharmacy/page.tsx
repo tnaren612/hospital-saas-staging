@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { PharmacyManager } from "@/components/admin/hms/pharmacy-manager";
-import { PortalLogout } from "@/components/auth/portal-logout";
 import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
@@ -13,7 +12,6 @@ export const metadata: Metadata = createMetadata({
 export default function PharmacyPortalPage() {
   return (
     <div className="container mx-auto max-w-6xl space-y-4 px-4 py-8">
-      <PortalLogout />
       <PharmacyManager />
     </div>
   );
