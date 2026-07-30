@@ -24,6 +24,7 @@ export function PharmacyManager() {
   const [saleQty, setSaleQty] = useState(1);
   const [stockAddQty, setStockAddQty] = useState(1);
   const [patientName, setPatientName] = useState("Walk-in Patient");
+  const [medicineSearch, setMedicineSearch] = useState("");
   const [actionError, setActionError] = useState("");
   const [newSku, setNewSku] = useState({ sku: "", name: "", purchase_price: 0, selling_price: 0, stock_qty: 0, reorder_level: 10 });
 
@@ -55,6 +56,10 @@ export function PharmacyManager() {
     if (!med) return;
     if (saleQty > med.stock_qty) {
       setActionError(`Only ${med.stock_qty} ${med.unit || "units"} of ${med.name} are available. Enter ${med.stock_qty} or less.`);
+      return;
+    }
+    if (med.expiry_date && new Date(`${med.expiry_date}T23:59:59`) < new Date()) {
+      setActionError(`${med.name} expired on ${med.expiry_date} and cannot be dispensed.`);
       return;
     }
     setActionError("");
@@ -205,12 +210,13 @@ export function PharmacyManager() {
           </div>
           <div>
             <Label>Medicine</Label>
+            <Input className="mt-1" value={medicineSearch} onChange={(e) => setMedicineSearch(e.target.value)} placeholder="Search medicine" />
             <select
               className="mt-1 flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
               value={saleMedId}
               onChange={(e) => setSaleMedId(e.target.value)}
             >
-              {meds.map((m) => (
+              {meds.filter((m) => m.name.toLowerCase().includes(medicineSearch.toLowerCase()) || (m.sku || "").toLowerCase().includes(medicineSearch.toLowerCase())).map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} (stock {m.stock_qty})
                 </option>
