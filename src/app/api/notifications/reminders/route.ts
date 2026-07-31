@@ -7,13 +7,15 @@ import {
   getSupabaseUrl,
   hasSupabaseConfig,
 } from "@/lib/supabase/env";
+import { verifyCronSecret } from "@/lib/auth/security";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/notifications/reminders
  * Cron-friendly: evaluate upcoming appointments and send 24h/2h/30m reminders.
- * Auth: CRON_SECRET header or admin-less when CRON_SECRET matches.
+ * Auth: CRON_SECRET is REQUIRED (fail-closed) — an unset secret denies all
+ * requests instead of opening the endpoint to anonymous callers.
  */
 export async function POST(request: Request) {
   const secret = process.env.CRON_SECRET || "";
@@ -22,7 +24,7 @@ export async function POST(request: Request) {
     request.headers.get("x-cron-secret") ||
     "";
 
-  if (secret && auth !== secret) {
+  if (!verifyCronSecret(secret, auth)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

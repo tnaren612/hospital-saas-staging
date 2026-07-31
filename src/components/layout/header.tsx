@@ -13,6 +13,8 @@ import {
   Languages,
   Accessibility,
   ChevronDown,
+  UserRound,
+  ShieldCheck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
@@ -41,7 +43,11 @@ const moreLinks = [
   { href: "/faq", key: "faq" as const },
   { href: "/careers", key: "careers" as const },
   { href: "/video-consult", key: "videoConsult" as const },
-  { href: "/patient/login", key: "patientLogin" as const },
+];
+
+const loginLinks = [
+  { href: "/patient/login", key: "patientLogin" as const, icon: UserRound },
+  { href: "/admin/login", key: "adminLogin" as const, icon: ShieldCheck },
 ];
 
 export function Header() {
@@ -243,7 +249,7 @@ export function Header() {
 
           <a
             href={`tel:+91${hospital.emergencyPhone}`}
-            className="hidden lg:inline-flex"
+            className="hidden 2xl:inline-flex"
             aria-label="Emergency call"
           >
             <Button variant="emergency" size="sm">
@@ -251,6 +257,26 @@ export function Header() {
               {t.common.emergencyCall}
             </Button>
           </a>
+
+          <div className="hidden items-center gap-1 lg:flex">
+            {loginLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                aria-label={t.nav[link.key]}
+                className="rounded-xl"
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 gap-1.5 px-2.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  <link.icon className="h-4 w-4" aria-hidden />
+                  {t.nav[link.key]}
+                </Button>
+              </Link>
+            ))}
+          </div>
 
           <button
             type="button"
@@ -290,6 +316,19 @@ export function Header() {
                   {t.nav[link.key]}
                 </Link>
               ))}
+              <div className="mt-1 border-t border-border pt-1">
+                {loginLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    aria-label={t.nav[link.key]}
+                    className="flex min-h-11 items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-foreground hover:bg-muted touch-manipulation"
+                  >
+                    <link.icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    {t.nav[link.key]}
+                  </Link>
+                ))}
+              </div>
               <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                 <Link href="/appointment" className="flex-1">
                   <Button className="w-full min-h-11">

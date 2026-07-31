@@ -10,6 +10,7 @@ import {
   getSupabaseUrl,
   hasSupabaseConfig,
 } from "@/lib/supabase/env";
+import { allowDemoFallback, ensureDemoAllowed } from "@/lib/supabase/demo-gate";
 
 const STORAGE_KEY = "ssh_testimonials_cms";
 
@@ -32,8 +33,10 @@ function mapRemote(row: Record<string, unknown>): Testimonial {
   };
 }
 
+/** localStorage CMS cache — skipped in production (static defaults + Supabase win). */
 function readCms(): Testimonial[] | null {
   if (!isBrowser()) return null;
+  if (!allowDemoFallback()) return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -47,6 +50,7 @@ function readCms(): Testimonial[] | null {
 
 function writeCms(items: Testimonial[]): void {
   if (!isBrowser()) return;
+  if (!allowDemoFallback()) return; // cache write only — never needed in production
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
@@ -94,7 +98,9 @@ export function getFeaturedTestimonials(limit = 6): Testimonial[] {
   return pool.slice(0, limit);
 }
 
+/** Local-only admin CMS editor (demo store — fails loudly outside development). */
 export function getAllTestimonials(): Testimonial[] {
+  ensureDemoAllowed("testimonials admin CMS");
   const cms = readCms();
   if (cms && cms.length > 0) return cms;
   return [];
@@ -154,6 +160,7 @@ export function deleteTestimonial(id: string): boolean {
 }
 
 export function resetTestimonialsToDefaults(): void {
+  ensureDemoAllowed("testimonials admin CMS");
   if (!isBrowser()) return;
   try {
     localStorage.removeItem(STORAGE_KEY);

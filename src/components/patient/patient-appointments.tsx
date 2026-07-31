@@ -22,7 +22,7 @@ import {
   googleCalendarUrl,
   outlookCalendarUrl,
 } from "@/lib/patient/service";
-import { getDemoDashboard } from "@/lib/patient/service";
+import { getDemoPatientName } from "@/lib/patient/service";
 
 export function PatientAppointmentsPage() {
   const [items, setItems] = useState<Appointment[]>([]);
@@ -31,7 +31,7 @@ export function PatientAppointmentsPage() {
   const [reschedule, setReschedule] = useState<Appointment | null>(null);
   const [rsDate, setRsDate] = useState("");
   const [rsTime, setRsTime] = useState("");
-  const name = getDemoDashboard().patient?.full_name;
+  const name = getDemoPatientName();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,7 +115,7 @@ export function PatientAppointmentsPage() {
   };
 
   return (
-    <PatientShell patientName={name}>
+        <PatientShell patientName={name ?? undefined}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

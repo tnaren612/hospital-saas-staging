@@ -52,6 +52,7 @@ function mergeConfig(
     seo?: Record<string, unknown>;
     social?: Record<string, unknown>;
     working_hours?: Record<string, unknown>;
+    data_management?: Record<string, unknown>;
     updated_at?: string;
   }
 ): HospitalConfig {
@@ -219,6 +220,7 @@ export async function getHospitalConfig(
       seo: settings?.seo as never,
       social: settings?.social as never,
       working_hours: settings?.working_hours as never,
+      data_management: settings?.data_management as never,
       updated_at: settings?.updated_at,
     });
 
@@ -256,6 +258,18 @@ export async function updateHospitalSettings(
     seo: { ...current.seo, ...patch.seo },
     social: { ...current.social, ...patch.social },
     working_hours: { ...current.working_hours, ...patch.working_hours },
+    data_management: {
+      ...current.data_management,
+      ...patch.data_management,
+      modules: {
+        ...current.data_management?.modules,
+        ...patch.data_management?.modules,
+      },
+      backup: {
+        ...current.data_management?.backup,
+        ...patch.data_management?.backup,
+      },
+    },
   });
 
   if (!canUseDb()) {
@@ -298,6 +312,7 @@ export async function updateHospitalSettings(
     seo: next.seo,
     social: next.social,
     working_hours: next.working_hours,
+    data_management: next.data_management,
     updated_by: updatedBy || null,
   });
 

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClientOrNull } from "@/lib/supabase/client";
 import { DOC_TYPES, type PatientDocument } from "@/lib/patient/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import { getDemoPatientName } from "@/lib/patient/service";
 
 export function PatientDocumentsPage() {
   const [items, setItems] = useState<PatientDocument[]>([]);
@@ -19,7 +19,7 @@ export function PatientDocumentsPage() {
   const [title, setTitle] = useState("");
   const [type, setType] = useState("other");
   const [file, setFile] = useState<File | null>(null);
-  const name = getDemoDashboard().patient?.full_name;
+  const name = getDemoPatientName();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -116,7 +116,7 @@ export function PatientDocumentsPage() {
   };
 
   return (
-    <PatientShell patientName={name}>
+    <PatientShell patientName={name ?? undefined}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">My documents</h1>

@@ -7,13 +7,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { PatientReport } from "@/lib/patient/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import { getDemoPatientName } from "@/lib/patient/service";
 
 export function PatientReportsPage() {
   const [items, setItems] = useState<PatientReport[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
-  const name = getDemoDashboard().patient?.full_name;
+  const name = getDemoPatientName();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,7 +42,7 @@ export function PatientReportsPage() {
   }, [items, q]);
 
   return (
-    <PatientShell patientName={name}>
+    <PatientShell patientName={name ?? undefined}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">My reports</h1>

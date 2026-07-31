@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import type { PortalPatient } from "@/lib/patient/types";
+import { allowDemoFallback } from "@/lib/supabase/demo-gate";
 import {
   getDemoDashboard,
   getPatientDashboard,
@@ -30,9 +31,14 @@ export function PatientProfilePage() {
       setPatient(data.patient);
       setMode(data.mode);
     } catch {
-      const demo = getDemoDashboard();
-      setPatient(demo.patient);
-      setMode(demo.mode);
+      if (allowDemoFallback()) {
+        const demo = getDemoDashboard();
+        setPatient(demo.patient);
+        setMode(demo.mode);
+      } else {
+        setPatient(null);
+        setMode("unauthenticated");
+      }
     } finally {
       setLoading(false);
     }

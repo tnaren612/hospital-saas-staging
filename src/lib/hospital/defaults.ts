@@ -9,6 +9,7 @@ import type {
   ModuleKey,
 } from "@/lib/hospital/types";
 import { MODULE_KEYS } from "@/lib/hospital/types";
+import { DEFAULT_DATA_MANAGEMENT } from "@/lib/datahub/settings";
 
 function envList(value: string | undefined): string[] {
   return (value || "")
@@ -215,6 +216,7 @@ export function buildDefaultHospitalConfig(): HospitalConfig {
       opd: process.env.NEXT_PUBLIC_OPD_HOURS || "",
       emergency: process.env.NEXT_PUBLIC_EMERGENCY_HOURS || "24×7",
     },
+    data_management: { ...DEFAULT_DATA_MANAGEMENT, modules: {} },
     source: "defaults",
   };
 }

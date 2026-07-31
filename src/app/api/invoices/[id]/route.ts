@@ -8,6 +8,7 @@ import {
   downloadInvoiceHtml,
   getInvoiceById,
 } from "@/lib/payments/payment-service";
+import { resolveInvoicePdfUrl } from "@/lib/payments/storage";
 import { requireHmsAdmin } from "@/lib/hms/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
@@ -98,10 +99,17 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   const auth = await authorizeInvoiceAccess(invoice);
   if (!auth.ok) return auth.response;
 
-  // Prefer stored PDF when available
+  // Prefer stored PDF when available (bucket is private — serve via signed URL)
   if (format === "pdf") {
     if (invoice.pdf_url) {
-      return NextResponse.redirect(invoice.pdf_url, 302);
+      const signed = await resolveInvoicePdfUrl(invoice.pdf_url);
+      if (signed) {
+        return NextResponse.redirect(signed, 302);
+      }
+      return NextResponse.json(
+        { error: "Invoice PDF unavailable" },
+        { status: 404 }
+      );
     }
     const result = await downloadInvoiceHtml(params.id);
     if (!result.ok || !result.html) {

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServerAuthClient } from "@/lib/supabase/server";
 import { canonicalizeRole, isPatient } from "@/lib/auth/roles";
+import { clientIp } from "@/lib/rate-limit";
+import { checkAuthRateLimitAsync } from "@/lib/auth/rate-limit";
+import { patientLoginRateLimitKey } from "@/lib/auth/security";
 
 const schema = z.object({
   email: z.string().email(),
@@ -17,9 +20,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const rl = await checkAuthRateLimitAsync(
+    patientLoginRateLimitKey(parsed.data.email, clientIp(request))
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      {
+        error:
+          "Too many login attempts. Please wait a few minutes and try again.",
+      },
+      { status: 429 }
+    );
+  }
+
   const supabase = createServerAuthClient();
   const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error || !data.user || !data.session) {
+    // Failed attempts keep accruing against the window.
     return NextResponse.json(
       {
         error:

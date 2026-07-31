@@ -390,6 +390,14 @@ export const ROUTE_GUARDS: RouteGuard[] = [
     roles: ADMIN_CONSOLE_ROLES,
   },
   {
+    prefix: "/admin/data-management",
+    roles: ADMIN_CONSOLE_ROLES,
+  },
+  {
+    prefix: "/api/admin/datahub",
+    roles: ADMIN_CONSOLE_ROLES,
+  },
+  {
     prefix: "/api/admin/tenant-audit",
     roles: ADMIN_CONSOLE_ROLES,
   },
@@ -516,6 +524,12 @@ export function featureForAdminPath(pathname: string): FeatureKey | null {
     return "settings";
   }
   if (
+    path.startsWith("/admin/data-management") ||
+    path.startsWith("/api/admin/datahub")
+  ) {
+    return "data";
+  }
+  if (
     path.startsWith("/admin/blog") ||
     path.startsWith("/admin/gallery") ||
     path.startsWith("/admin/packages") ||
@@ -530,6 +544,9 @@ export function featureForAdminPath(pathname: string): FeatureKey | null {
   }
   if (path.startsWith("/admin/lab") || path.startsWith("/api/phase2/lab")) return "lab";
   if (path.startsWith("/admin/pharmacy") || path.startsWith("/api/phase2/pharmacy")) {
+    return "pharmacy";
+  }
+  if (path.startsWith("/api/admin/pharmacy")) {
     return "pharmacy";
   }
   if (
@@ -663,7 +680,8 @@ export type FeatureKey =
   | "discharge"
   | "referrals"
   | "followups"
-  | "insurance";
+  | "insurance"
+  | "data";
 
 const ALL_ADMIN_FEATURES: FeatureKey[] = [
   "dashboard",
@@ -693,6 +711,7 @@ const ALL_ADMIN_FEATURES: FeatureKey[] = [
   "referrals",
   "followups",
   "insurance",
+  "data",
 ];
 
 const ROLE_FEATURES: Record<string, FeatureKey[]> = {

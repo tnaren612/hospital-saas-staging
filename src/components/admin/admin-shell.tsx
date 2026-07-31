@@ -36,6 +36,7 @@ import {
   PanelsTopLeft,
   Send,
   CalendarCheck,
+  Database,
 } from "lucide-react";
 import { adminLogoutAction } from "@/lib/auth/actions";
 import { cn } from "@/lib/utils";
@@ -84,6 +85,7 @@ const links: {
   { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote, feature: "cms" },
   { href: "/admin/cms", label: "Website Pages", icon: PanelsTopLeft, feature: "cms" },
   { href: "/admin/settings", label: "Settings", icon: Settings, feature: "settings" },
+  { href: "/admin/data-management", label: "Data Management", icon: Database, feature: "data" },
 ];
 
 type AdminShellProps = {

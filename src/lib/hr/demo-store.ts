@@ -1,5 +1,6 @@
 import type { HrAttendance, HrEmployee, HrLeaveRequest } from "@/lib/hr/types";
 import { generateId } from "@/lib/utils";
+import { gatedDemoStore } from "@/lib/supabase/demo-gate";
 
 const employees: HrEmployee[] = [
   {
@@ -28,7 +29,7 @@ const employees: HrEmployee[] = [
 const leaves: HrLeaveRequest[] = [];
 const attendance: HrAttendance[] = [];
 
-export const demoHr = {
+const rawDemoHr = {
   listEmployees: () => [...employees],
   createEmployee(input: Omit<HrEmployee, "id">): HrEmployee {
     const row: HrEmployee = { id: generateId("emp"), ...input };
@@ -72,3 +73,5 @@ export const demoHr = {
     return row;
   },
 };
+
+export const demoHr = gatedDemoStore("hr demo store", rawDemoHr);

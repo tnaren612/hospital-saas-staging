@@ -12,7 +12,7 @@ import {
   isRefundStatus,
   type PaymentRecord,
 } from "@/lib/payments/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import { getDemoPatientName } from "@/lib/patient/service";
 import toast from "react-hot-toast";
 import { useHospitalConfig } from "@/components/hospital/hospital-config-provider";
 
@@ -29,7 +29,7 @@ export function PatientPaymentsPage() {
   const { config } = useHospitalConfig();
   const [items, setItems] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const name = getDemoDashboard().patient?.full_name;
+  const name = getDemoPatientName();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,7 +177,7 @@ export function PatientPaymentsPage() {
   };
 
   return (
-    <PatientShell patientName={name}>
+    <PatientShell patientName={name ?? undefined}>
       <div className="space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

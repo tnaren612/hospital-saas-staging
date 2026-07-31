@@ -83,6 +83,7 @@ export default async function RootLayout({
         />
       </head>
       <body
+        suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} min-w-0 overflow-x-hidden font-sans antialiased`}
       >
         <AppProviders>
