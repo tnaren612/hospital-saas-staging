@@ -10,6 +10,7 @@ import {
   ArrowRightLeft,
   Archive,
   History,
+  HardDrive,
   Loader2,
 } from "lucide-react";
 import { DatabaseBrowser } from "./database-browser";
@@ -19,6 +20,7 @@ import { TemplatesPanel } from "./templates-panel";
 import { MappingManager } from "./mapping-manager";
 import { BackupManager } from "./backup-manager";
 import { AuditLog } from "./audit-log";
+import { StorageSetupWizard } from "./storage-setup-wizard";
 
 export type CatalogModule = {
   key: string;
@@ -46,7 +48,8 @@ type Tab =
   | "templates"
   | "mapping"
   | "backup"
-  | "audit";
+  | "audit"
+  | "storage";
 
 const TABS: { id: Tab; label: string; icon: typeof Database }[] = [
   { id: "database", label: "Database", icon: Database },
@@ -56,6 +59,7 @@ const TABS: { id: Tab; label: string; icon: typeof Database }[] = [
   { id: "mapping", label: "Mapping", icon: ArrowRightLeft },
   { id: "backup", label: "Backup & Restore", icon: Archive },
   { id: "audit", label: "Audit Log", icon: History },
+  { id: "storage", label: "Storage", icon: HardDrive },
 ];
 
 export function DataManagementManager({
@@ -139,6 +143,7 @@ export function DataManagementManager({
           )}
           {tab === "backup" && <BackupManager />}
           {tab === "audit" && <AuditLog />}
+          {tab === "storage" && <StorageSetupWizard />}
         </div>
       )}
     </div>

@@ -55,7 +55,6 @@ export function SettlementView() {
   };
 
   const printReport = () => {
-    const header = ["#", "Sale No", "Patient", "Method", "Grand Total", "Paid", "Balance", "Date"];
     const body = outstanding.map((o, i) => [
       String(i + 1),
       o.saleNumber,
@@ -82,7 +81,7 @@ export function SettlementView() {
   <p><strong>Refunds:</strong> ${formatMoney(report.refunds)} (${report.returnCount}) · <strong>Cash drawer estimate:</strong> ${formatMoney(report.cashDrawer)}</p>
   <p><strong>Outstanding:</strong> ${formatMoney(report.outstandingTotal)} (${report.outstandingCount} bills)</p>
   <h2>Outstanding balances</h2>
-  ${rowsToTableHtml(body.map((row, i) => ({ "#": row[0], "Sale No": row[1], Patient: row[2], Method: row[3], "Grand Total": row[4], Paid: row[5], Balance: row[6], Date: row[7] })))}
+  ${rowsToTableHtml(body.map((row) => ({ "#": row[0], "Sale No": row[1], Patient: row[2], Method: row[3], "Grand Total": row[4], Paid: row[5], Balance: row[6], Date: row[7] })))}
 </body></html>`;
     printHtmlViaIframe(html);
   };

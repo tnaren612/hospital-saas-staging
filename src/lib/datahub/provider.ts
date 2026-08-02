@@ -11,7 +11,7 @@
  * modules translate field key <-> column internally.
  */
 
-import type { DataModule } from "./types";
+import type { DataModule, StorageMode } from "./types";
 import {
   configModuleTable,
   getAllModules,
@@ -20,6 +20,8 @@ import {
 } from "./registry";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { applyHospitalFilter } from "@/lib/hospital/tenant";
+import { sqliteProvider } from "./sqlite";
+import { excelProvider } from "./excel";
 
 export type BrowseQuery = {
   search?: string;
@@ -484,4 +486,44 @@ function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Provider selection
+// ---------------------------------------------------------------------------
+
+export type ProviderSelectionOpts = {
+  /** On-disk path for the SQLite DB (sqlite/hybrid) or Excel workbook (excel). */
+  storageFile?: string;
+};
+
+/**
+ * Select the active `DataProvider` from the configured storage mode.
+ * Business logic and UI never choose a backend directly — they go through this
+ * factory. `supabase` preserves the original integrated-hospital behavior.
+ * `hybrid` uses the local SQLite store as its transactional backend; cloud sync
+ * is handled separately by the sync engine (see PHARMACY_OFFLINE_ARCHITECTURE.md).
+ */
+export async function createDataProvider(
+  mode: StorageMode,
+  opts?: ProviderSelectionOpts
+): Promise<DataProvider> {
+  switch (mode) {
+    case "sqlite":
+      return sqliteProvider({ path: opts?.storageFile || ":memory:" });
+    case "hybrid":
+      return sqliteProvider({ path: opts?.storageFile || ":memory:" });
+    case "excel": {
+      const filePath = opts?.storageFile;
+      if (!filePath) {
+        throw new Error(
+          "Excel storage mode requires a workbook file path (storage_file)."
+        );
+      }
+      return excelProvider({ filePath });
+    }
+    case "supabase":
+    default:
+      return supabaseProvider();
+  }
 }

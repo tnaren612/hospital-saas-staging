@@ -11,6 +11,8 @@ import { getAllModules } from "./registry";
 
 export const DEFAULT_DATA_MANAGEMENT: DataManagementConfig = {
   enabled: true,
+  storage_mode: "supabase",
+  storage_file: "",
   allowedFormats: ["xlsx", "xls", "csv"],
   maxFileSizeMB: 10,
   duplicateMode: "update",
@@ -35,6 +37,8 @@ function mergeConfig(
   const modules = { ...base.modules, ...(patch.modules || {}) };
   return {
     enabled: patch.enabled ?? base.enabled,
+    storage_mode: patch.storage_mode ?? base.storage_mode,
+    storage_file: patch.storage_file ?? base.storage_file,
     allowedFormats: patch.allowedFormats ?? base.allowedFormats,
     maxFileSizeMB: patch.maxFileSizeMB ?? base.maxFileSizeMB,
     duplicateMode: patch.duplicateMode ?? base.duplicateMode,
@@ -61,6 +65,16 @@ export function resolveDataManagementConfig(
       typeof source.enabled === "boolean"
         ? source.enabled
         : DEFAULT_DATA_MANAGEMENT.enabled,
+    storage_mode:
+      source.storage_mode === "sqlite" ||
+      source.storage_mode === "excel" ||
+      source.storage_mode === "hybrid"
+        ? source.storage_mode
+        : DEFAULT_DATA_MANAGEMENT.storage_mode,
+    storage_file:
+      typeof source.storage_file === "string"
+        ? source.storage_file
+        : DEFAULT_DATA_MANAGEMENT.storage_file,
     allowedFormats: Array.isArray(source.allowedFormats)
       ? (source.allowedFormats as string[])
       : DEFAULT_DATA_MANAGEMENT.allowedFormats,

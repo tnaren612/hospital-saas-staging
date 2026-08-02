@@ -6,7 +6,7 @@
 import { NextResponse } from "next/server";
 import { requireHmsAdmin } from "@/lib/hms/server";
 import { getTenantContext } from "@/lib/hospital/tenant";
-import { supabaseProvider } from "@/lib/datahub/provider";
+import { createDataProvider } from "@/lib/datahub/provider";
 import { getModule } from "@/lib/datahub/registry";
 import { resolveDataManagementConfig } from "@/lib/datahub/settings";
 import { getHospitalConfig } from "@/lib/hospital/service";
@@ -48,8 +48,11 @@ export async function getDataConfig() {
   return resolveDataManagementConfig(config.data_management);
 }
 
-export function makeProvider(): Promise<DataProvider> {
-  return supabaseProvider();
+export async function makeProvider(): Promise<DataProvider> {
+  const config = await getDataConfig();
+  return createDataProvider(config.storage_mode, {
+    storageFile: config.storage_file || undefined,
+  });
 }
 
 export function resolveModule(

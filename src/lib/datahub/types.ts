@@ -154,10 +154,17 @@ export type DataAuditEntry = {
   createdAt: string;
 };
 
+/** Storage mode for the DataHub engine / standalone pharmacy. */
+export type StorageMode = "supabase" | "sqlite" | "excel" | "hybrid";
+
 /** Tenant-scoped Data Management configuration (persisted in hospital config). */
 export type DataManagementConfig = {
   /** Master toggle for the whole data management module. */
   enabled: boolean;
+  /** Which storage backend serves data operations. */
+  storage_mode: StorageMode;
+  /** Optional on-disk path for the SQLite DB / Excel workbook (local modes). */
+  storage_file: string;
   /** Allowed upload formats: "xlsx" | "xls" | "csv". */
   allowedFormats: string[];
   /** Maximum upload size in megabytes. */

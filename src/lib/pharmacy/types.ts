@@ -150,7 +150,7 @@ export type CartItem = {
   name: string;
   generic_name?: string;
   manufacturer?: string;
-  batch_number?: string;
+  batch_number?: string | null;
   expiry_date?: string | null;
   mrp: number;
   selling_price: number;

@@ -29,6 +29,16 @@ export async function PATCH(request: Request) {
   const next: Partial<DataManagementConfig> = {
     enabled:
       typeof body.enabled === "boolean" ? body.enabled : current.enabled,
+    storage_mode:
+      body.storage_mode === "sqlite" ||
+      body.storage_mode === "excel" ||
+      body.storage_mode === "hybrid"
+        ? body.storage_mode
+        : current.storage_mode,
+    storage_file:
+      typeof body.storage_file === "string"
+        ? body.storage_file
+        : current.storage_file,
     allowedFormats: Array.isArray(body.allowedFormats)
       ? body.allowedFormats.filter((f) => ALLOWED_FORMATS.includes(f))
       : current.allowedFormats,
