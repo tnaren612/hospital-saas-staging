@@ -225,6 +225,7 @@ export type ReceiptBuildOptions = {
   customer: PosCustomer;
   printedBy?: string;
   transactionId?: string;
+  taxType?: "intra" | "inter";
 };
 
 /** Build a full ReceiptData for immediate printing from a (local) sale. */
@@ -263,7 +264,7 @@ export function buildReceiptData(opts: ReceiptBuildOptions): ReceiptData {
     cgst: totals.summary.cgst,
     sgst: totals.summary.sgst,
     igst: totals.summary.igst,
-    tax_type: "intra",
+    tax_type: opts.taxType ?? "intra",
     patient_id: opts.customer.patientId || null,
     patient_age: opts.customer.patientAge ?? null,
     transaction_id: opts.transactionId,
@@ -336,6 +337,7 @@ export function receiptDataFromSale(
     },
     printedBy: opts.cashierName,
     transactionId: (row.id as string) || undefined,
+    taxType: row.tax_type === "inter" ? "inter" : "intra",
   });
 }
 

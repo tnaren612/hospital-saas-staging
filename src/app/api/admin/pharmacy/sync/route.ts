@@ -19,8 +19,28 @@ import {
 } from "@/lib/pharmacy/service";
 import { posSaleSchema } from "@/lib/pharmacy/validation";
 import type { SyncEntity } from "@/lib/pharmacy/offline/types";
+import { hasSupabaseConfig } from "@/lib/supabase/env";
+import {
+  getPharmacySqlite,
+  medicineInputSchema,
+  returnInputSchema,
+  sqliteSaleSchema,
+  type PharmacySqliteStore,
+} from "@/lib/pharmacy/sqlite-store";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Local (standalone / fully offline) mode: when Supabase is not configured —
+ * or explicitly requested with `?backend=sqlite` — every push op and pull is
+ * served by the on-disk SQLite pharmacy store so the app keeps working with
+ * the internet completely unavailable.
+ */
+function isLocalMode(request: Request): boolean {
+  const url = new URL(request.url);
+  if (url.searchParams.get("backend") === "sqlite") return true;
+  return !hasSupabaseConfig();
+}
 
 const SYNC_ENTITIES = [
   "settings",
@@ -80,6 +100,64 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unsupported pull entity" }, { status: 400 });
   }
 
+  const local = isLocalMode(request);
+  const store = local ? getPharmacySqlite() : null;
+
+  if (local && store) {
+    const LOCAL_PULL_ENTITIES = new Set([
+      "settings",
+      "branch",
+      "shift",
+      "return",
+      "held_bill",
+      "sale",
+      "medicine",
+    ]);
+    if (!LOCAL_PULL_ENTITIES.has(entity)) {
+      return NextResponse.json({ error: "Unsupported pull entity" }, { status: 400 });
+    }
+    try {
+      let rows: Array<Record<string, unknown>> = [];
+      switch (entity) {
+        case "settings":
+          rows = [store.getSettings() as unknown as Record<string, unknown>];
+          break;
+        case "medicine":
+          rows = store.listMedicines({ limit: 2000 });
+          break;
+        case "branch":
+          rows = store.listBranches();
+          break;
+        case "shift":
+          rows = store.listShifts();
+          break;
+        case "return":
+          rows = store.listReturns({ limit: 2000 });
+          break;
+        case "held_bill":
+          rows = store.listHeldBills();
+          break;
+        case "sale":
+          rows = store.listSales({ sinceIso: since, limit });
+          break;
+      }
+      const filtered = rows.filter((r) => rowUpdatedAt(r) >= since);
+      return NextResponse.json({
+        data: {
+          entity,
+          rows: filtered.map((r) => ({
+            id: String(r.id),
+            updatedAt: rowUpdatedAt(r),
+            data: r,
+          })),
+          serverTime: new Date().toISOString(),
+        },
+      });
+    } catch {
+      return NextResponse.json({ error: "Pull failed" }, { status: 500 });
+    }
+  }
+
   try {
     let rows: Array<Record<string, unknown>> = [];
     switch (entity) {
@@ -119,6 +197,103 @@ export async function GET(request: Request) {
     });
   } catch {
     return NextResponse.json({ error: "Pull failed" }, { status: 500 });
+  }
+}
+
+/** Apply one queued mutation to the local SQLite store (standalone mode). */
+function applyLocalOp(
+  store: PharmacySqliteStore,
+  op: z.infer<typeof opSchema>
+): { id: string } {
+  switch (op.entity) {
+    case "sale": {
+      const sale = sqliteSaleSchema.safeParse(op.payload);
+      if (!sale.success) throw new Error("Invalid sale payload");
+      return store.createSale(sale.data);
+    }
+    case "return": {
+      const ret = returnInputSchema.safeParse(op.payload);
+      if (!ret.success) throw new Error("Invalid return payload");
+      return { id: String(store.createReturn(ret.data).id) };
+    }
+    case "medicine": {
+      const med = medicineInputSchema.safeParse(op.payload);
+      if (!med.success) throw new Error("Invalid medicine payload");
+      const created = store.createMedicine(med.data);
+      const batchNumber =
+        typeof op.payload.batch_number === "string" &&
+        String(op.payload.batch_number).trim()
+          ? String(op.payload.batch_number).trim()
+          : null;
+      if (batchNumber) {
+        store.addBatch({
+          medicine_id: String(created.id),
+          batch_number: batchNumber,
+          expiry_date:
+            typeof op.payload.expiry_date === "string"
+              ? String(op.payload.expiry_date)
+              : null,
+          purchase_price: Number(op.payload.purchase_price || 0),
+          selling_price: Number(op.payload.selling_price || 0),
+          mrp: typeof op.payload.mrp === "number" ? op.payload.mrp : null,
+          qty: Number(op.payload.stock_qty || 0),
+        });
+      }
+      return { id: String(created.id) };
+    }
+    case "held_bill":
+      return { id: String(store.createHeldBill({
+        reference: String(op.payload.reference || "HELD"),
+        customer_name:
+          typeof op.payload.customer_name === "string"
+            ? op.payload.customer_name
+            : null,
+        customer_phone:
+          typeof op.payload.customer_phone === "string"
+            ? op.payload.customer_phone
+            : null,
+        items: Array.isArray(op.payload.items) ? op.payload.items : [],
+        discount: Number(op.payload.discount || 0),
+        notes: typeof op.payload.notes === "string" ? op.payload.notes : null,
+        held_by: typeof op.payload.held_by === "string" ? op.payload.held_by : null,
+        held_by_name:
+          typeof op.payload.held_by_name === "string"
+            ? op.payload.held_by_name
+            : null,
+      }).id)};
+    case "branch":
+      return { id: String(store.createBranch({
+        name: String(op.payload.name || "Main Pharmacy"),
+        code: typeof op.payload.code === "string" ? op.payload.code : undefined,
+        address:
+          typeof op.payload.address === "string" ? op.payload.address : null,
+        city: typeof op.payload.city === "string" ? op.payload.city : null,
+        state: typeof op.payload.state === "string" ? op.payload.state : null,
+        pincode:
+          typeof op.payload.pincode === "string" ? op.payload.pincode : null,
+        phone: typeof op.payload.phone === "string" ? op.payload.phone : null,
+        email: typeof op.payload.email === "string" ? op.payload.email : null,
+        manager_name:
+          typeof op.payload.manager_name === "string"
+            ? op.payload.manager_name
+            : null,
+        is_default: Boolean(op.payload.is_default),
+      }).id)};
+    case "shift":
+      return { id: String(store.openShift({
+        user_name: String(op.payload.user_name || "Cashier"),
+        user_id:
+          typeof op.payload.user_id === "string" ? op.payload.user_id : null,
+        branch_id:
+          typeof op.payload.branch_id === "string" ? op.payload.branch_id : null,
+        opening_cash: Number(op.payload.opening_cash || 0),
+        notes: typeof op.payload.notes === "string" ? op.payload.notes : null,
+      }).id)};
+    case "settings":
+      store.saveSettings(op.payload as Record<string, unknown>);
+      return { id: "settings" };
+    default:
+      throw new Error(`no server apply for entity "${op.entity}" yet`);
   }
 }
 
@@ -163,6 +338,38 @@ export async function POST(request: Request) {
 
   const results = [];
   const sb = gate.supabase;
+
+  const local = isLocalMode(request);
+  const store = local ? getPharmacySqlite() : null;
+
+  if (local && store) {
+    for (const op of parsed.data.ops) {
+      try {
+        const applied = applyLocalOp(store, op);
+        results.push({
+          opId: op.id,
+          ok: true,
+          serverId: applied.id,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Apply failed";
+        const isConflict =
+          /insufficient stock|already exists|conflict|expired|not found|negative/i.test(
+            message
+          );
+        results.push({
+          opId: op.id,
+          ok: false,
+          conflict: isConflict,
+          error: message,
+        });
+      }
+    }
+    return NextResponse.json({
+      data: { results, serverTime: new Date().toISOString() },
+    });
+  }
 
   for (const op of parsed.data.ops) {
     try {
