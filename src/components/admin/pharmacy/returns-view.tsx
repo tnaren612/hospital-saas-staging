@@ -16,6 +16,10 @@ import {
   useOfflineStore,
 } from "@/lib/pharmacy/offline";
 import { createUuid } from "@/lib/pharmacy/offline/storage";
+import {
+  commitReturnLocally,
+  fetchLocalSale,
+} from "@/lib/pharmacy/local-tx";
 
 type ReturnRow = Record<string, unknown> & {
   return_number?: string;
@@ -65,6 +69,11 @@ export function ReturnsView() {
       toast.error("Patient name is required");
       return;
     }
+    const saleNumber = form.original_sale_number.trim();
+    if (!saleNumber) {
+      toast.error("Original sale number is required for an exact-batch return");
+      return;
+    }
     const validItems = form.items.filter(
       (it) => it.name.trim() && Number(it.qty) > 0
     );
@@ -72,11 +81,53 @@ export function ReturnsView() {
       toast.error("Add at least one returned medicine");
       return;
     }
+
+    // The SQLite engine restores the EXACT batch each item was sold from, so
+    // the original sale must exist in the local store and each returned item
+    // must be part of it. Name-only / arbitrary-batch restoration is blocked.
+    let items: Array<Record<string, unknown>>;
+    try {
+      const sale = await fetchLocalSale(saleNumber);
+      if (!sale) {
+        toast.error(
+          "Original sale not found in the local store — returns must reference a committed local sale."
+        );
+        return;
+      }
+      const saleLines = Array.isArray(sale.line_items)
+        ? (sale.line_items as Array<Record<string, unknown>>)
+        : [];
+      items = validItems.map((it) => {
+        const med = medicines.find(
+          (m) => String(m.data.name ?? "") === it.name.trim()
+        );
+        const line = saleLines.find(
+          (l) => String(l.name ?? "") === it.name.trim()
+        );
+        if (!line) {
+          throw new Error(
+            `${it.name.trim()} was not part of sale ${saleNumber}`
+          );
+        }
+        return {
+          medicine_id: med ? String(med.id) : (line.medicine_id ? String(line.medicine_id) : null),
+          medicine_name: it.name.trim(),
+          batch_number: line.batch_number ? String(line.batch_number) : null,
+          quantity: Number(it.qty),
+          unit_price: Number(it.unit_price) || 0,
+          total_price: Number(((Number(it.qty) || 0) * (Number(it.unit_price) || 0)).toFixed(2)),
+          reason: it.reason || form.return_reason,
+        };
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Return validation failed");
+      return;
+    }
+
     const id = createUuid();
     const payload: Record<string, unknown> = {
       _clientId: id,
-      return_number: `RET-${Date.now().toString().slice(-8)}`,
-      original_sale_number: form.original_sale_number.trim() || null,
+      original_sale_number: saleNumber,
       patient_name: form.patient_name.trim(),
       patient_phone: form.patient_phone.trim() || null,
       return_reason: form.return_reason,
@@ -84,26 +135,43 @@ export function ReturnsView() {
       refund_method: form.refund_method,
       subtotal: Number(itemTotal.toFixed(2)),
       refund_amount: Number(itemTotal.toFixed(2)),
-      status: "pending",
-      items: validItems.map((it) => ({
-        medicine_name: it.name.trim(),
-        quantity: Number(it.qty),
-        unit_price: Number(it.unit_price) || 0,
-        total_price: Number(((Number(it.qty) || 0) * (Number(it.unit_price) || 0)).toFixed(2)),
-        reason: it.reason || form.return_reason,
-      })),
+      items,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    await enqueueMutation(storage, {
-      id,
-      hospitalId: "local",
-      entity: "return",
-      action: "create",
-      payload,
-      targetKey: `return::${id}`,
-    });
-    toast.success("Return recorded offline — syncs automatically");
+
+    // 1) COMMIT — the SQLite transaction restores the exact sold batches.
+    const tx = await commitReturnLocally(payload);
+    if (!tx.ok) {
+      toast.error(
+        tx.kind === "network"
+          ? "Local store is unreachable — the return was not recorded."
+          : tx.error
+      );
+      return;
+    }
+    const committed = tx.data;
+
+    // 2) Queue the COMMITTED return for cloud sync (idempotent per sale).
+    try {
+      await enqueueMutation(storage, {
+        id: String(committed.id),
+        hospitalId: "local",
+        entity: "return",
+        action: "create",
+        payload: {
+          ...payload,
+          return_number: committed.return_number || null,
+        },
+        targetKey: `return::${committed.id}`,
+      });
+    } catch {
+      toast.error("Return committed locally, but could not be queued for cloud sync.");
+    }
+
+    toast.success(
+      `Return ${String(committed.return_number ?? "")} completed — stock restored.`
+    );
     setShowForm(false);
     setForm({ ...form, patient_name: "", patient_phone: "", original_sale_number: "", items: [] });
   };

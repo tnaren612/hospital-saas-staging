@@ -218,13 +218,13 @@ export function PharmacyDashboard() {
       </Card>
 
       {/* Mode indicator */}
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Stethoscope className="h-3.5 w-3.5" />
         Operating mode:{" "}
         <Badge variant="outline">
           {settings.standalone_mode ? "Standalone Pharmacy" : "Integrated Hospital ERP"}
         </Badge>
-      </p>
+      </div>
     </div>
   );
 }

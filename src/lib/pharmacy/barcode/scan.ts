@@ -101,8 +101,10 @@ export type IndexedMedicine = {
 };
 
 export type MedicineLookupIndex = {
-  /** exact match index: normalized barcode/sku → medicine id */
+  /** exact match index: normalized barcode/sku → medicine id (first-wins) */
   byBarcode: Map<string, string>;
+  /** every medicine whose SKU/barcode normalizes to a key — ambiguity detection */
+  byBarcodeAll: Map<string, IndexedMedicine[]>;
   /** first-2-char buckets for name/generic/manufacturer substring search */
   buckets: Map<string, IndexedMedicine[]>;
   all: IndexedMedicine[];
@@ -129,6 +131,7 @@ export function medicineBarcodeKeys(med: IndexedMedicine): string[] {
  */
 export function buildMedicineIndex(medicines: IndexedMedicine[]): MedicineLookupIndex {
   const byBarcode = new Map<string, string>();
+  const byBarcodeAll = new Map<string, IndexedMedicine[]>();
   const buckets = new Map<string, IndexedMedicine[]>();
   const all: IndexedMedicine[] = [];
 
@@ -146,12 +149,15 @@ export function buildMedicineIndex(medicines: IndexedMedicine[]): MedicineLookup
     all.push(med);
     for (const key of medicineBarcodeKeys(med)) {
       if (!byBarcode.has(key)) byBarcode.set(key, med.id);
+      const allFor = byBarcodeAll.get(key) || [];
+      allFor.push(med);
+      byBarcodeAll.set(key, allFor);
     }
     addToBucket(med.name || "", med);
     if (med.generic_name) addToBucket(med.generic_name, med);
     if (med.manufacturer) addToBucket(med.manufacturer, med);
   }
-  return { byBarcode, buckets, all };
+  return { byBarcode, byBarcodeAll, buckets, all };
 }
 
 export function findMedicineByBarcode(
@@ -163,6 +169,20 @@ export function findMedicineByBarcode(
   const id = index.byBarcode.get(key);
   if (!id) return null;
   return index.all.find((m) => m.id === id) || null;
+}
+
+/**
+ * Case-insensitive SKU lookup for POS scan fields. Returns null for
+ * empty / whitespace-only input — an empty scan must NEVER match a
+ * medicine whose SKU is blank, or a phantom line lands in the cart.
+ */
+export function findMedicineBySku<M extends IndexedMedicine>(
+  medicines: M[],
+  raw: string
+): M | null {
+  const q = KEY(String(raw ?? ""));
+  if (!q) return null;
+  return medicines.find((m) => KEY(m.sku || "") === q) || null;
 }
 
 export type MedicineSearchOpts = {
@@ -225,12 +245,141 @@ function fieldMatches(
   return false;
 }
 
-/** First char of a barcode scan is often a check/prefix char; exact then fuzzy. */
-export function resolveScan(index: MedicineLookupIndex, raw: string): {
-  medicine: IndexedMedicine | null;
-  matchedKey: string | null;
-} {
-  const direct = findMedicineByBarcode(index, raw);
-  if (direct) return { medicine: direct, matchedKey: raw };
-  return { medicine: null, matchedKey: null };
+/**
+ * Deterministic fuzzy variants of a scanned value, tried in order when an
+ * exact lookup fails. Each variant addresses a real-world scanner quirk:
+ *
+ *   1. compact form          "89 0123 4567 890" → "8901234567890"
+ *   2. non-alphanumeric      "\u001d8901234567890" → "8901234567890"
+ *   3. Code 39 terminators   "*ABC123*" → "ABC123"
+ *   4. EAN-13 minus check    "8901234567890" → "890123456789"
+ *   5. UPC-A minus check     "036000291458" → "03600029145"
+ *   6. leading zeros         "0036000291458" → "36000291458"
+ *   7. prefix char dropped   scan prefix char (comment in resolveScan)
+ *   8. trailing char dropped scanner-appended terminator digit
+ */
+export function fuzzyBarcodeVariants(raw: string): string[] {
+  const v = normalizeBarcode(raw);
+  if (!v) return [];
+  const out: string[] = [];
+  const push = (s: string) => {
+    const k = s.trim();
+    if (k && k !== v && !out.includes(k)) out.push(k);
+  };
+  const compact = v.replace(/\s+/g, "");
+  push(compact);
+  const stripped = v.replace(/[^0-9A-Za-z]/g, "");
+  push(stripped);
+  const code39 = v.replace(/^[*\s]+|[*\s]+$/g, "");
+  push(code39);
+  const digitBase = /^\d+$/.test(stripped) ? stripped : "";
+  if (digitBase.length === 13) push(digitBase.slice(0, 12));
+  if (digitBase.length === 12) push(digitBase.slice(0, 11));
+  // Scanner dropped the check digit — recompute it (EAN-13 / UPC-A share GTIN).
+  if (digitBase.length === 12) push(digitBase + gtinChecksum(digitBase));
+  if (digitBase.length === 11) push(digitBase + gtinChecksum(digitBase));
+  if (digitBase) push(digitBase.replace(/^0+/, ""));
+  if (digitBase.length >= 8) {
+    push(digitBase.slice(1));
+    push(digitBase.slice(0, -1));
+  }
+  return out;
+}
+
+export type ResolveScanResult =
+  | { status: "exact"; medicine: IndexedMedicine; matchedKey: string }
+  | { status: "fuzzy"; medicine: IndexedMedicine; matchedKey: string }
+  | { status: "ambiguous"; medicine: null; matchedKey: string | null }
+  | { status: "unknown"; medicine: null; matchedKey: null };
+
+/**
+ * Resolve a scan against the medicine index.
+ *
+ * Exact SKU/barcode matches win immediately. If the exact lookup misses, every
+ * fuzzy variant is evaluated and ALL distinct medicines that could match are
+ * collected — a single candidate resolves, two or more different medicines
+ * collapse to an explicit `ambiguous` result (never a silently chosen one).
+ * The result is independent of medicine array order.
+ */
+export function resolveScan(
+  index: MedicineLookupIndex,
+  raw: string
+): ResolveScanResult {
+  // Defense-in-depth: an empty / whitespace-only / control-only value can
+  // never resolve a medicine, no matter who calls resolveScan.
+  const key = normalizeBarcode(raw);
+  if (!key) {
+    return { status: "unknown", medicine: null, matchedKey: null };
+  }
+  const direct = findMedicineByBarcode(index, key);
+  if (direct) return { status: "exact", medicine: direct, matchedKey: key };
+  const seen = new Map<string, IndexedMedicine>();
+  const matchedKeys: string[] = [];
+  for (const variant of fuzzyBarcodeVariants(raw)) {
+    const hits = index.byBarcodeAll.get(KEY(variant)) || [];
+    for (const med of hits) {
+      if (!seen.has(med.id)) {
+        seen.set(med.id, med);
+        matchedKeys.push(variant);
+      }
+    }
+  }
+  if (seen.size === 1) {
+    const med = [...seen.values()][0];
+    return { status: "fuzzy", medicine: med, matchedKey: matchedKeys[0] };
+  }
+  if (seen.size > 1) {
+    return { status: "ambiguous", medicine: null, matchedKey: matchedKeys[0] ?? null };
+  }
+  return { status: "unknown", medicine: null, matchedKey: null };
+}
+
+export type MedicineDupInput = {
+  name?: string;
+  manufacturer?: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+};
+
+export type MedicineDupHit = {
+  kind: "name" | "sku" | "barcode";
+  medicine: IndexedMedicine;
+};
+
+/**
+ * Detect an existing medicine that would collide with a new SKU / barcode
+ * (or the same name + manufacturer). Used by the unknown-barcode → Add
+ * Medicine flow and the Inventory form to prevent duplicate keys before
+ * anything is enqueued. `excludeId` skips the medicine being edited.
+ */
+export function findDuplicateMedicineKey(
+  medicines: IndexedMedicine[],
+  input: MedicineDupInput,
+  excludeId?: string
+): MedicineDupHit | null {
+  const name = KEY(input.name || "");
+  const manufacturer = KEY(input.manufacturer || "");
+  const sku = KEY(input.sku || "");
+  const barcode = KEY(input.barcode || "");
+  const compactBarcode = (input.barcode || "").replace(/\s+/g, "").toLowerCase();
+
+  for (const med of medicines) {
+    if (excludeId && med.id === excludeId) continue;
+    if (name && manufacturer && KEY(med.name) === name) {
+      const medMaker = KEY(med.manufacturer || "");
+      if (!medMaker || medMaker === manufacturer) {
+        return { kind: "name", medicine: med };
+      }
+    }
+    if (sku && KEY(med.sku || "") === sku) {
+      return { kind: "sku", medicine: med };
+    }
+    if (barcode && (KEY(med.barcode || "") === barcode)) {
+      return { kind: "barcode", medicine: med };
+    }
+    if (compactBarcode && compactBarcode === (med.barcode || "").replace(/\s+/g, "").toLowerCase()) {
+      return { kind: "barcode", medicine: med };
+    }
+  }
+  return null;
 }

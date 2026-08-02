@@ -25,6 +25,14 @@ import {
 } from "./types";
 import { type OfflineStorage, keyEntityParts } from "./storage";
 import { isRetryable, shouldRetryNow } from "./queue";
+import {
+  CLOUD_UNAVAILABLE_MSG,
+  SESSION_EXPIRED_MSG,
+  CloudError,
+  classifyFetchError,
+  isCloudUnavailable,
+  type CloudFailureKind,
+} from "./cloud";
 
 const LAST_SYNC_KEY = (entity: SyncEntity) => `lastSync::${entity}`;
 export const INTEGRITY_COUNT_KEY = (entity: SyncEntity) =>
@@ -67,6 +75,8 @@ export class SyncEngine {
   private pullEntities: SyncEntity[];
   private maxBatch: number;
   private running = false;
+  /** Last transport-level failure seen during the current cycle. */
+  private lastFailure: { kind: CloudFailureKind; message: string } | null = null;
 
   constructor(opts: SyncEngineOpts) {
     this.storage = opts.storage;
@@ -77,17 +87,30 @@ export class SyncEngine {
   }
 
   async stats(): Promise<SyncStats> {
-    const queue = await this.storage.listQueue();
-    const applied = queue.filter((o) => o.status === "applied").length;
-    return {
-      lastSyncAt: await this.storage.getMeta("lastSyncAt"),
-      lastAttemptAt: await this.storage.getMeta("lastAttemptAt"),
-      pendingCount: queue.filter((o) => isRetryable(o.status)).length,
-      failedCount: queue.filter((o) => o.status === "failed").length,
-      blockedCount: queue.filter((o) => o.status === "blocked").length,
-      appliedCount: applied,
-      lastError: await this.storage.getMeta("lastSyncError"),
-    };
+    try {
+      const queue = await this.storage.listQueue();
+      const applied = queue.filter((o) => o.status === "applied").length;
+      return {
+        lastSyncAt: await this.storage.getMeta("lastSyncAt"),
+        lastAttemptAt: await this.storage.getMeta("lastAttemptAt"),
+        pendingCount: queue.filter((o) => isRetryable(o.status)).length,
+        failedCount: queue.filter((o) => o.status === "failed").length,
+        blockedCount: queue.filter((o) => o.status === "blocked").length,
+        appliedCount: applied,
+        lastError: await this.storage.getMeta("lastSyncError"),
+      };
+    } catch (err) {
+      // Storage unavailable — report the state instead of throwing.
+      return {
+        lastSyncAt: null,
+        lastAttemptAt: null,
+        pendingCount: 0,
+        failedCount: 0,
+        blockedCount: 0,
+        appliedCount: 0,
+        lastError: err instanceof Error ? err.message : "storage unavailable",
+      };
+    }
   }
 
   /** Returns the ops that are due to be pushed right now. */
@@ -194,12 +217,37 @@ export class SyncEngine {
           result.errors.push(err);
         }
       } catch (e) {
+        const kind = e instanceof CloudError ? e.kind : classifyFetchError(e);
+        if (isCloudUnavailable(kind)) {
+          // Cloud unreachable: never mark the op failed, never drop it. Keep
+          // it pending so retry uses the existing per-op backoff; revert the
+          // attempts bump so pure network failures can never exhaust the cap.
+          this.lastFailure = {
+            kind,
+            message: e instanceof Error ? e.message : "network error",
+          };
+          await this.storage.updateOp(op.id, {
+            status: "pending", // back to retryable — never stuck in "syncing"
+            attempts: op.attempts, // revert the attempts bump
+          });
+          await this.storage.setMeta("lastSyncError", CLOUD_UNAVAILABLE_MSG);
+          break; // network down — stop pushing, don't hammer
+        }
         const err = e instanceof Error ? e.message : "network error";
+        this.lastFailure = {
+          kind,
+          message: err,
+        };
         await this.storage.updateOp(op.id, { status: "failed", lastError: err });
         await this.audit("sync.push.error", op.entity, null, { opId: op.id, error: err });
         result.failed++;
-        result.errors.push(err);
-        break; // network down — stop pushing, don't hammer
+        // Auth/permission failures surface their friendly message via syncNow;
+        // pushing the raw message here would double-toast.
+        if (kind !== "unauthorized" && kind !== "forbidden") {
+          result.errors.push(err);
+        }
+        // Auth/permission failures won't heal within this cycle — stop.
+        if (kind === "unauthorized" || kind === "forbidden") break;
       }
     }
 
@@ -223,7 +271,14 @@ export class SyncEngine {
     try {
       const res = await this.transport.pull(req);
       rows = res.rows || [];
-    } catch {
+    } catch (err) {
+      // Transport-level failure: classify it; the cloud status model drives
+      // the UI. Auth failures are recorded, never hidden as offline.
+      const kind = err instanceof CloudError ? err.kind : classifyFetchError(err);
+      this.lastFailure = {
+        kind,
+        message: err instanceof Error ? err.message : "network error",
+      };
       return 0;
     }
 
@@ -269,6 +324,16 @@ export class SyncEngine {
     return typeof row?.hospital_id === "string" ? row.hospital_id : "local";
   }
 
+  /**
+   * Reset the per-cycle failure info. Kept behind a method: a direct
+   * `this.lastFailure = null` assignment narrows later reads in the same
+   * method to `null` (TS control-flow analysis), which would break the
+   * failure-kind handling below.
+   */
+  private resetFailure(): void {
+    this.lastFailure = null;
+  }
+
   /** Full cycle: push pending ops, then pull each configured entity. */
   async syncNow(): Promise<SyncResult> {
     if (this.running) {
@@ -284,6 +349,7 @@ export class SyncEngine {
       return idle;
     }
     this.running = true;
+    this.resetFailure();
     try {
       const pushed = await this.pushOnce();
       let pulled = 0;
@@ -293,8 +359,31 @@ export class SyncEngine {
       const result: SyncResult = {
         ...pushed,
         pulled,
-        errors: pushed.errors,
+        errors: [...pushed.errors],
       };
+
+      const failure = this.lastFailure;
+      if (failure) {
+        if (isCloudUnavailable(failure.kind)) {
+          // Cloud unreachable: no error entries (no toast spam) — the cloud
+          // status model is the signal; the queue stays intact for retry.
+          await this.storage.setMeta("lastSyncError", CLOUD_UNAVAILABLE_MSG);
+        } else if (failure.kind === "unauthorized" || failure.kind === "forbidden") {
+          // 401/403 must NOT silently become offline success.
+          const message =
+            failure.kind === "unauthorized"
+              ? SESSION_EXPIRED_MSG
+              : "Cloud sync is forbidden for your account.";
+          await this.storage.setMeta("lastSyncError", message);
+          result.errors.push(message);
+        } else {
+          const message = `Cloud sync failed (${failure.kind}).`;
+          await this.storage.setMeta("lastSyncError", message);
+          result.errors.push(message);
+        }
+        return result;
+      }
+
       await this.storage.setMeta(
         "lastSyncAt",
         new Date().toISOString()
@@ -306,6 +395,25 @@ export class SyncEngine {
         conflicts: result.conflicts,
       });
       return result;
+    } catch (err) {
+      // Storage unavailable: pause the cycle and surface the reason.
+      const message =
+        err instanceof Error ? err.message : "sync unavailable";
+      const failed: SyncResult = {
+        pushed: 0,
+        failed: 0,
+        blocked: 0,
+        dropped: 0,
+        pulled: 0,
+        conflicts: 0,
+        errors: [message],
+      };
+      try {
+        await this.storage.setMeta("lastSyncError", message);
+      } catch {
+        // storage itself is down — nothing to persist.
+      }
+      return failed;
     } finally {
       this.running = false;
     }
@@ -324,16 +432,27 @@ export class SyncEngine {
       "held_bill",
     ])];
     const checks: IntegrityCheck["checks"] = [];
-    for (const entity of entities) {
-      const counted = await this.storage.countEntities(entity);
-      const recordedRaw = await this.storage.getMeta(INTEGRITY_COUNT_KEY(entity));
-      const recorded = recordedRaw ? Number(recordedRaw) : counted;
-      checks.push({
-        entity,
-        counted,
-        recorded,
-        match: counted === recorded,
-      });
+    try {
+      for (const entity of entities) {
+        const counted = await this.storage.countEntities(entity);
+        const recordedRaw = await this.storage.getMeta(INTEGRITY_COUNT_KEY(entity));
+        const recorded = recordedRaw ? Number(recordedRaw) : counted;
+        checks.push({
+          entity,
+          counted,
+          recorded,
+          match: counted === recorded,
+        });
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "storage unavailable";
+      return {
+        ok: false,
+        checkedAt: new Date().toISOString(),
+        checks: [],
+        error: message,
+      };
     }
     const ok = checks.every((c) => c.match);
     await this.audit("integrity.verified", "sale", null, {

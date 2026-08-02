@@ -1324,6 +1324,21 @@ export class PharmacySqliteStore {
     });
   }
 
+  /**
+   * Idempotent sale commit (the active POS transaction boundary). When the
+   * caller supplies a `sale_number` that already exists, the existing sale is
+   * returned untouched — retries of an already-committed transaction must
+   * never double-deduct stock or write a second sale.
+   */
+  createSaleIdempotent(raw: SqliteSaleInput): SaleRow {
+    const saleNumber = raw.sale_number;
+    if (saleNumber) {
+      const existing = this.getSale(saleNumber);
+      if (existing) return existing;
+    }
+    return this.createSale(raw);
+  }
+
   private upsertPatient(p: {
     uhid: string | null;
     name: string;
@@ -1632,6 +1647,35 @@ export class PharmacySqliteStore {
         .all(returnId) as Array<Record<string, unknown>>;
       return { ...row, items };
     });
+  }
+
+  /** Read one return with its items (by return number or original sale). */
+  getReturn(returnNumber: string): Record<string, unknown> | null {
+    const row = this.db
+      .prepare("SELECT * FROM returns WHERE return_number = ? OR sale_number = ?")
+      .get(returnNumber, returnNumber) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const items = this.db
+      .prepare("SELECT * FROM return_items WHERE return_id = ?")
+      .all(String(row.id)) as Array<Record<string, unknown>>;
+    return { ...row, items };
+  }
+
+  /**
+   * Idempotent return (the active POS return boundary). The M4/M5 engine
+   * supports one return per original sale (return_number derives from the
+   * sale); a retry of an already-committed return returns the existing row
+   * instead of re-restoring stock or re-refunding.
+   */
+  createReturnIdempotent(raw: z.input<typeof returnInputSchema>): Record<string, unknown> {
+    const saleNumber = String(raw.original_sale_number || "").trim();
+    if (saleNumber) {
+      const existing = this.db
+        .prepare("SELECT return_number FROM returns WHERE sale_number = ?")
+        .get(saleNumber) as { return_number: string } | undefined;
+      if (existing) return this.getReturn(existing.return_number)!;
+    }
+    return this.createReturn(raw);
   }
 
   listReturns(opts?: { limit?: number }): Array<Record<string, unknown>> {

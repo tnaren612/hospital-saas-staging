@@ -209,12 +209,15 @@ function applyLocalOp(
     case "sale": {
       const sale = sqliteSaleSchema.safeParse(op.payload);
       if (!sale.success) throw new Error("Invalid sale payload");
-      return store.createSale(sale.data);
+      // Idempotent: the active POS commits sales through the offline route
+      // first; pushing the queued op here must return the existing sale and
+      // never double-deduct stock.
+      return store.createSaleIdempotent(sale.data);
     }
     case "return": {
       const ret = returnInputSchema.safeParse(op.payload);
       if (!ret.success) throw new Error("Invalid return payload");
-      return { id: String(store.createReturn(ret.data).id) };
+      return { id: String(store.createReturnIdempotent(ret.data).id) };
     }
     case "medicine": {
       const med = medicineInputSchema.safeParse(op.payload);

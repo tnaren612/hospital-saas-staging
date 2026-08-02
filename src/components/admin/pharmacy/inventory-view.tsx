@@ -15,6 +15,7 @@ import {
   useOfflineEntities,
   useOfflineStore,
 } from "@/lib/pharmacy/offline";
+import { findDuplicateMedicineKey } from "@/lib/pharmacy/barcode/scan";
 
 type MedicineRow = Record<string, unknown> & {
   id?: string;
@@ -130,9 +131,37 @@ export function InventoryView() {
 
   const addSku = async (e: React.FormEvent) => {
     e.preventDefault();
+    const name = form.name.trim();
+    if (!name) {
+      toast.error("Medicine name is required.");
+      return;
+    }
+    const dup = findDuplicateMedicineKey(
+      merged.map((m) => ({
+        id: String(m.id),
+        name: String(m.name ?? ""),
+        sku: m.sku ? String(m.sku) : null,
+        barcode: m.barcode ? String(m.barcode) : null,
+        manufacturer: m.manufacturer ? String(m.manufacturer) : null,
+      })),
+      {
+        name,
+        manufacturer: form.manufacturer.trim() || null,
+        sku: form.sku.trim() || null,
+        barcode: form.barcode.trim() || null,
+      }
+    );
+    if (dup) {
+      toast.error(
+        dup.kind === "name"
+          ? `${dup.medicine.name} already exists with this name & manufacturer.`
+          : `That ${dup.kind} already belongs to ${dup.medicine.name}.`
+      );
+      return;
+    }
     const payload: Record<string, unknown> = {
       _clientId: crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-      name: form.name.trim(),
+      name,
       generic_name: form.generic_name.trim() || null,
       manufacturer: form.manufacturer.trim() || null,
       sku: form.sku.trim() || null,

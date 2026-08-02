@@ -11,6 +11,12 @@ import {
 import type { CachedEntity } from "./types";
 import { findDedupCandidate } from "./queue";
 import { SyncEngine } from "./sync";
+import {
+  CLOUD_UNAVAILABLE_MSG,
+  CloudError,
+  classifyFetchError,
+  isCloudUnavailable,
+} from "./cloud";
 import type {
   OfflineMutation,
   PullRequest,
@@ -28,10 +34,27 @@ export * from "./types";
 export * from "./storage";
 export * from "./queue";
 export * from "./sync";
+export * from "./cloud";
 
 // ============================================================================
 // HTTP transport → /api/admin/pharmacy/sync (auth via same-origin session)
 // ============================================================================
+
+/** Classify a non-ok sync response; 401/403 stay auth failures, never offline. */
+function classifyTransportError(
+  res: Response,
+  json: { error?: string }
+): CloudError {
+  const bodyError = json.error ?? null;
+  const kind = classifyFetchError(new Error(bodyError || `HTTP ${res.status}`), {
+    status: res.status,
+    bodyError,
+  });
+  const message = isCloudUnavailable(kind)
+    ? CLOUD_UNAVAILABLE_MSG
+    : bodyError || `Sync request failed (${res.status})`;
+  return new CloudError(kind, message, res.status);
+}
 
 export function createHttpSyncTransport(baseUrl = ""): SyncTransport {
   return {
@@ -47,7 +70,7 @@ export function createHttpSyncTransport(baseUrl = ""): SyncTransport {
         error?: string;
       };
       if (!res.ok || !json.data) {
-        throw new Error(json.error || `Sync push failed (${res.status})`);
+        throw classifyTransportError(res, json);
       }
       return json.data;
     },
@@ -66,7 +89,7 @@ export function createHttpSyncTransport(baseUrl = ""): SyncTransport {
         error?: string;
       };
       if (!res.ok || !json.data) {
-        throw new Error(json.error || `Sync pull failed (${res.status})`);
+        throw classifyTransportError(res, json);
       }
       return json.data;
     },
@@ -125,10 +148,51 @@ export function useOfflineStore(): OfflineStorage {
   const [, force] = useState(0);
   useEffect(() => {
     const storage = getOfflineStorage();
-    void storage.init();
+    void storage.init().catch(() => {
+      // Storage failure is surfaced through isReady()/useStorageHealth();
+      // every storage operation rejects with the stable init error.
+    });
     return storage.subscribe(() => force((v) => v + 1));
   }, []);
   return getOfflineStorage();
+}
+
+/**
+ * Storage readiness/health for UI (e.g. POS banner). Reflects the
+ * deterministic initialization lifecycle: `ready` flips true only after the
+ * IndexedDB open succeeds; `error` is set once a real failure occurs (and
+ * stays stable — no silent retry loop). Manual recovery goes through
+ * storage.reset().
+ */
+export function useStorageHealth(): {
+  ready: boolean;
+  error: string | null;
+} {
+  const storage = useOfflineStore();
+  const [state, setState] = useState<{ ready: boolean; error: string | null }>({
+    ready: storage.isReady(),
+    error: null,
+  });
+  useEffect(() => {
+    let alive = true;
+    void storage
+      .ensureReady()
+      .then(() => {
+        if (alive) setState({ ready: true, error: null });
+      })
+      .catch((err: unknown) => {
+        if (alive) {
+          setState({
+            ready: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [storage]);
+  return state;
 }
 
 export function useOnlineStatus(): boolean {
@@ -222,25 +286,51 @@ export function useOfflineSync(
       setLastResult(result);
       setStats(await engine.stats());
       return result;
+    } catch (err) {
+      // Engine never throws by contract, but guard the hook boundary too.
+      const message =
+        err instanceof Error ? err.message : "Sync failed";
+      const failed: SyncResult = {
+        pushed: 0,
+        failed: 0,
+        blocked: 0,
+        dropped: 0,
+        pulled: 0,
+        conflicts: 0,
+        errors: [message],
+      };
+      setLastResult(failed);
+      setStats((prev) => ({ ...prev, lastError: message }));
+      return failed;
     } finally {
       setSyncing(false);
     }
   };
 
   const verify = async (): Promise<IntegrityCheck> => {
-    const engine = getSyncEngine(opts);
-    const check = await engine.verifyIntegrity();
-    setIntegrity(check);
-    return check;
+    try {
+      const engine = getSyncEngine(opts);
+      const check = await engine.verifyIntegrity();
+      setIntegrity(check);
+      return check;
+    } catch (err) {
+      const check: IntegrityCheck = {
+        ok: false,
+        checkedAt: new Date().toISOString(),
+        checks: [],
+        error: err instanceof Error ? err.message : "storage unavailable",
+      };
+      setIntegrity(check);
+      return check;
+    }
   };
 
   useEffect(() => {
     if (!opts?.autoSync) return;
     if (!online) return;
+    // syncNow never throws and waits for storage readiness internally.
     void syncNow();
   }, [online, opts?.autoSync]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  void storage;
 
   return { online, stats, syncing, lastResult, integrity, syncNow, verify };
 }
@@ -252,14 +342,29 @@ export function useOfflineEntities<T>(
 ): CachedEntity<T>[] {
   const storage = useOfflineStore();
   const [items, setItems] = useState<CachedEntity<T>[]>([]);
+  const [tick, setTick] = useState(0);
+
+  // Re-read on every store change (queue/cache writes notify subscribers).
+  // This also covers the init completion: opening the DB notifies, the tick
+  // bumps and the load effect below runs against a ready store.
+  useEffect(() => {
+    return storage.subscribe(() => setTick((t) => t + 1));
+  }, [storage]);
+
   useEffect(() => {
     let alive = true;
-    void storage.listEntities<T>(entity, hospitalId).then((rows) => {
-      if (alive) setItems(rows);
-    });
+    void (async () => {
+      try {
+        await storage.ensureReady();
+        const rows = await storage.listEntities<T>(entity, hospitalId);
+        if (alive) setItems(rows);
+      } catch {
+        if (alive) setItems([]);
+      }
+    })();
     return () => {
       alive = false;
     };
-  }, [storage, entity, hospitalId]);
+  }, [storage, entity, hospitalId, tick]);
   return items;
 }

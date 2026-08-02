@@ -98,6 +98,8 @@ export type IntegrityCheck = {
     recorded: number;
     match: boolean;
   }>;
+  /** Present when the check could not run (e.g. storage unavailable). */
+  error?: string;
 };
 
 /** Pull request: entity + ISO timestamp of last sync (inclusive boundary). */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import {
   Banknote,
@@ -38,6 +38,7 @@ import { computeTotals, type CartLine } from "@/lib/pharmacy/cart";
 import { formatMoney, getCurrency } from "@/lib/pharmacy/tax";
 import { buildPaymentMethods, type PaymentCategory } from "@/lib/pharmacy/payments";
 import { printEngine } from "@/lib/pharmacy/print-engine";
+import { findMedicineBySku } from "@/lib/pharmacy/barcode/scan";
 
 type DashboardPayload = {
   settings: PharmacySettings;
@@ -66,6 +67,7 @@ export function PharmacyPos() {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [search, setSearch] = useState("");
   const [barcode, setBarcode] = useState("");
+  const barcodeRef = useRef<HTMLInputElement>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [globalDiscount, setGlobalDiscount] = useState(0);
   const [selectedMethod, setSelectedMethod] = useState<string>("cash");
@@ -175,7 +177,7 @@ export function PharmacyPos() {
     setSearch("");
   };
 
-  const addByBarcode = (med: Medicine | undefined) => {
+  const addByBarcode = (med: Medicine | null | undefined) => {
     if (!med) {
       toast.error("Barcode / SKU not found.");
       setBarcode("");
@@ -183,6 +185,19 @@ export function PharmacyPos() {
     }
     addToCart(med);
     setBarcode("");
+  };
+
+  // Single entry point for both the Enter key and the search button. An
+  // empty / whitespace-only scan is blocked BEFORE any lookup — a blank
+  // query must never match a medicine whose SKU is blank (that would add
+  // a phantom line to the cart).
+  const submitBarcode = () => {
+    if (!barcode.trim()) {
+      toast.error("Scan or enter a barcode / SKU.");
+      barcodeRef.current?.focus();
+      return;
+    }
+    addByBarcode(findMedicineBySku(medicines, barcode));
   };
 
   const changeQty = (medicineId: string | undefined, delta: number) => {
@@ -406,26 +421,20 @@ export function PharmacyPos() {
             <Label>Scan medicine (barcode / SKU)</Label>
             <div className="mt-1 flex gap-2">
               <Input
+                ref={barcodeRef}
                 className="font-mono"
                 value={barcode}
                 onChange={(e) => setBarcode(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    const med = medicines.find(
-                      (m) => (m.sku || "").toLowerCase() === barcode.trim().toLowerCase()
-                    );
-                    addByBarcode(med);
+                    e.preventDefault();
+                    submitBarcode();
                   }
                 }}
                 placeholder="Scan or type SKU, press Enter"
                 autoComplete="off"
               />
-              <Button type="button" variant="outline" onClick={() => {
-                const med = medicines.find(
-                  (m) => (m.sku || "").toLowerCase() === barcode.trim().toLowerCase()
-                );
-                addByBarcode(med);
-              }}>
+              <Button type="button" variant="outline" onClick={submitBarcode}>
                 <Search className="h-4 w-4" />
               </Button>
             </div>

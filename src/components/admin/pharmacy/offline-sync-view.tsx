@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/admin/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useOfflineStore, useOfflineSync } from "@/lib/pharmacy/offline";
+import { useOfflineStore, useOfflineSync, useCloudStatus } from "@/lib/pharmacy/offline";
 import type { OfflineAuditEntry, OfflineMutation, SyncEntity } from "@/lib/pharmacy/offline";
 
 const STATUS_BADGE: Record<string, string> = {
@@ -42,6 +42,7 @@ const ENTITY_LABEL: Record<SyncEntity, string> = {
 
 export function OfflineSyncView() {
   const storage = useOfflineStore();
+  const cloud = useCloudStatus();
   const sync = useOfflineSync({
     autoSync: true,
     pullEntities: ["sale", "return", "held_bill", "branch", "shift", "settings"],
@@ -86,7 +87,7 @@ export function OfflineSyncView() {
               <ShieldCheck className="h-4 w-4" aria-hidden />
               Verify integrity
             </Button>
-            <Button size="sm" onClick={() => void doSync()} disabled={sync.syncing || !sync.online}>
+            <Button size="sm" onClick={() => void doSync()} disabled={sync.syncing}>
               <RefreshCw className={`h-4 w-4 ${sync.syncing ? "animate-spin" : ""}`} aria-hidden />
               {sync.syncing ? "Syncing…" : "Sync now"}
             </Button>
@@ -97,14 +98,22 @@ export function OfflineSyncView() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
-            {sync.online ? (
+            {cloud.state === "connected" ? (
               <Cloud className="h-8 w-8 text-emerald-500" aria-hidden />
             ) : (
               <CloudOff className="h-8 w-8 text-amber-500" aria-hidden />
             )}
             <div>
               <div className="text-sm text-muted-foreground">Status</div>
-              <div className="font-semibold">{sync.online ? "Online" : "Offline"}</div>
+              <div className="font-semibold">
+                {cloud.state === "connected"
+                  ? "Cloud connected"
+                  : cloud.state === "unavailable"
+                    ? "Cloud unavailable — working offline"
+                    : cloud.state === "syncing"
+                      ? "Syncing…"
+                      : "Cloud sync error"}
+              </div>
             </div>
           </CardContent>
         </Card>

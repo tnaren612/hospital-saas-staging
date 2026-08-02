@@ -20,7 +20,16 @@ export type EntityRecord = CachedEntity;
 
 export interface OfflineStorage {
   init(): Promise<void>;
+  /**
+   * Deterministic readiness gate: every public operation awaits this before
+   * touching the database. Idempotent — concurrent callers share ONE
+   * initialization lifecycle (single IndexedDB open). Resolves when the DB
+   * is open; rejects with a stable error when initialization has failed.
+   */
+  ensureReady(): Promise<void>;
   isReady(): boolean;
+  /** Forget a failed initialization so a later call can retry (manual recovery). */
+  reset?(): void;
 
   // --- queue ---
   enqueue(op: Omit<OfflineMutation, "seq">): Promise<OfflineMutation>;
@@ -107,6 +116,9 @@ export class MemoryOfflineStorage implements OfflineStorage {
   private listeners = new Set<() => void>();
 
   async init(): Promise<void> {
+    this.ready = true;
+  }
+  async ensureReady(): Promise<void> {
     this.ready = true;
   }
   isReady(): boolean {
@@ -260,12 +272,61 @@ export class MemoryOfflineStorage implements OfflineStorage {
 const DB_NAME = "ssh-pharmacy-offline";
 const DB_VERSION = 1;
 
+/** Exported for tests that need a clean database per case. */
+export const OFFLINE_DB_NAME = DB_NAME;
+
 export class IndexedDbOfflineStorage implements OfflineStorage {
   private db: IDBDatabase | null = null;
   private ready = false;
+  /** Single shared initialization lifecycle — all concurrent callers await it. */
+  private initPromise: Promise<void> | null = null;
+  /** Stable failure: once set, ensureReady() rejects immediately (no retry loop). */
+  private initError: Error | null = null;
   private listeners = new Set<() => void>();
 
+  /**
+   * Idempotent entry point. Safe to call any number of times — Strict Mode
+   * double effects, hooks and direct consumers all share one open lifecycle.
+   */
   async init(): Promise<void> {
+    return this.ensureReady();
+  }
+
+  async ensureReady(): Promise<void> {
+    if (this.ready) return;
+    if (this.initError) throw this.initError;
+    if (!this.initPromise) {
+      this.initPromise = this.openDatabase().catch((err: unknown) => {
+        this.initError =
+          err instanceof Error ? err : new Error(String(err));
+        this.initPromise = null;
+        this.notify();
+        throw this.initError;
+      });
+    }
+    return this.initPromise;
+  }
+
+  /** Forget a failure so a later call can attempt initialization again. */
+  reset(): void {
+    this.initError = null;
+    this.initPromise = null;
+    this.ready = false;
+    this.db = null;
+  }
+
+  /**
+   * Close the underlying connection (test cleanup / app teardown). A later
+   * operation re-opens the database through the normal readiness gate.
+   */
+  close(): void {
+    this.db?.close();
+    this.db = null;
+    this.ready = false;
+    this.initPromise = null;
+  }
+
+  private async openDatabase(): Promise<void> {
     if (typeof indexedDB === "undefined") return;
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -300,9 +361,12 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     return this.ready;
   }
 
-  private tx(store: string, mode: IDBTransactionMode = "readonly") {
-    if (!this.db) throw new Error("Offline storage not initialised");
-    return this.db.transaction(store, mode).objectStore(store);
+  private async tx(
+    store: string,
+    mode: IDBTransactionMode = "readonly"
+  ): Promise<IDBObjectStore> {
+    await this.ensureReady();
+    return this.db!.transaction(store, mode).objectStore(store);
   }
 
   private req<T>(r: IDBRequest<T>): Promise<T> {
@@ -318,13 +382,13 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
       seq: await this.nextSeq(),
       createdAt: op.createdAt || new Date().toISOString(),
     };
-    await this.req(this.tx("queue", "readwrite").put(full));
+    await this.req((await this.tx("queue", "readwrite")).put(full));
     this.notify();
     return full;
   }
 
   async nextSeq(): Promise<number> {
-    const store = this.tx("queue");
+    const store = await this.tx("queue");
     const all = await this.req<OfflineMutation[]>(store.getAll() as IDBRequest<OfflineMutation[]>);
     return all.reduce((m, o) => Math.max(m, o.seq), -1) + 1;
   }
@@ -334,7 +398,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     limit?: number
   ): Promise<OfflineMutation[]> {
     const all = await this.req<OfflineMutation[]>(
-      this.tx("queue").getAll() as IDBRequest<OfflineMutation[]>
+      (await this.tx("queue")).getAll() as IDBRequest<OfflineMutation[]>
     );
     let items = all.sort((a, b) => a.seq - b.seq);
     if (statuses) items = items.filter((o) => statuses.includes(o.status));
@@ -346,7 +410,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     id: string,
     patch: Partial<OfflineMutation>
   ): Promise<OfflineMutation | null> {
-    const store = this.tx("queue", "readwrite");
+    const store = await this.tx("queue", "readwrite");
     const cur = await this.req<OfflineMutation | undefined>(
       store.get(id) as IDBRequest<OfflineMutation | undefined>
     );
@@ -358,12 +422,12 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
   }
 
   async removeOp(id: string): Promise<void> {
-    await this.req(this.tx("queue", "readwrite").delete(id));
+    await this.req((await this.tx("queue", "readwrite")).delete(id));
     this.notify();
   }
 
   async clearQueue(): Promise<number> {
-    const store = this.tx("queue", "readwrite");
+    const store = await this.tx("queue", "readwrite");
     const all = await this.req<OfflineMutation[]>(store.getAll() as IDBRequest<OfflineMutation[]>);
     await this.req(store.clear());
     this.notify();
@@ -379,7 +443,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     deletedAt?: string | null
   ): Promise<void> {
     await this.req(
-      this.tx("entities", "readwrite").put({
+      (await this.tx("entities", "readwrite")).put({
         key: entityKey(entity, id),
         entity,
         id,
@@ -397,7 +461,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     id: string
   ): Promise<CachedEntity<T> | null> {
     const rec = await this.req<EntityRecord | undefined>(
-      this.tx("entities").get(entityKey(entity, id)) as IDBRequest<EntityRecord | undefined>
+      (await this.tx("entities")).get(entityKey(entity, id)) as IDBRequest<EntityRecord | undefined>
     );
     return (rec as CachedEntity<T>) || null;
   }
@@ -407,7 +471,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
     hospitalId?: string
   ): Promise<CachedEntity<T>[]> {
     const all = await this.req<EntityRecord[]>(
-      this.tx("entities").getAll() as IDBRequest<EntityRecord[]>
+      (await this.tx("entities")).getAll() as IDBRequest<EntityRecord[]>
     );
     const items = all
       .filter((r) => r.entity === entity)
@@ -423,28 +487,28 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
   }
 
   async deleteEntity(entity: SyncEntity, id: string): Promise<void> {
-    await this.req(this.tx("entities", "readwrite").delete(entityKey(entity, id)));
+    await this.req((await this.tx("entities", "readwrite")).delete(entityKey(entity, id)));
     this.notify();
   }
 
   async getMeta(key: string): Promise<string | null> {
     const rec = await this.req<{ key: string; value: string } | undefined>(
-      this.tx("meta").get(key) as IDBRequest<{ key: string; value: string } | undefined>
+      (await this.tx("meta")).get(key) as IDBRequest<{ key: string; value: string } | undefined>
     );
     return rec?.value ?? null;
   }
   async setMeta(key: string, value: string): Promise<void> {
-    await this.req(this.tx("meta", "readwrite").put({ key, value }));
+    await this.req((await this.tx("meta", "readwrite")).put({ key, value }));
     this.notify();
   }
   async deleteMeta(key: string): Promise<void> {
-    await this.req(this.tx("meta", "readwrite").delete(key));
+    await this.req((await this.tx("meta", "readwrite")).delete(key));
     this.notify();
   }
 
   async appendAudit(entry: Omit<OfflineAuditEntry, "id" | "ts">): Promise<void> {
     await this.req(
-      this.tx("audit", "readwrite").put({
+      (await this.tx("audit", "readwrite")).put({
         ...entry,
         id: createUuid(),
         ts: new Date().toISOString(),
@@ -455,7 +519,7 @@ export class IndexedDbOfflineStorage implements OfflineStorage {
 
   async listAudit(limit = 100): Promise<OfflineAuditEntry[]> {
     const all = await this.req<OfflineAuditEntry[]>(
-      this.tx("audit").getAll() as IDBRequest<OfflineAuditEntry[]>
+      (await this.tx("audit")).getAll() as IDBRequest<OfflineAuditEntry[]>
     );
     return all.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, limit);
   }

@@ -92,7 +92,9 @@ export async function GET(request: Request) {
         data = store.listPurchases({ limit });
         break;
       case "sales":
-        data = store.listSales({ sinceIso: since, limit });
+        data = url.searchParams.get("sale_number")
+          ? store.getSale(url.searchParams.get("sale_number")!)
+          : store.listSales({ sinceIso: since, limit });
         break;
       case "payments":
         data = store.listPayments({ saleNumber, sinceIso: since });
@@ -214,22 +216,22 @@ export async function POST(request: Request) {
         const parsed = saleActionSchema.safeParse(body);
         if (!parsed.success) {
           return NextResponse.json(
-            { error: "Validation failed", details: parsed.error.flatten() },
+            { error: "Validation failed", details: parsed.error.flatten(), kind: "validation" },
             { status: 400 }
           );
         }
-        data = store.createSale(parsed.data as SqliteSaleInput);
+        data = store.createSaleIdempotent(parsed.data as SqliteSaleInput);
         break;
       }
       case "return": {
         const parsed = returnInputSchema.safeParse(body);
         if (!parsed.success) {
           return NextResponse.json(
-            { error: "Validation failed", details: parsed.error.flatten() },
+            { error: "Validation failed", details: parsed.error.flatten(), kind: "validation" },
             { status: 400 }
           );
         }
-        data = store.createReturn(parsed.data);
+        data = store.createReturnIdempotent(parsed.data);
         break;
       }
       case "settings": {
@@ -271,6 +273,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ data }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Operation failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    // Structured failures: stock/business conflicts are a 409 with kind
+    // "stock" (the POS must never treat them as server errors or as a
+    // successful sale); everything else is a server failure.
+    if (
+      /insufficient stock|no available stock|cannot sell expired|negative|already exists|not found|no batch found|at most .* can be returned|immutable/i.test(
+        message
+      )
+    ) {
+      return NextResponse.json(
+        { error: message, kind: "stock" },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: message, kind: "server" }, { status: 500 });
   }
 }

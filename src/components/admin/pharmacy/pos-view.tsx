@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import Link from "next/link";
 import {
@@ -36,11 +36,22 @@ import { formatMoney, getCurrency } from "@/lib/pharmacy/tax";
 import { buildPaymentMethods } from "@/lib/pharmacy/payments";
 import {
   enqueueMutation,
+  runBootstrap,
+  useCloudStatus,
   useOfflineEntities,
   useOfflineStore,
   useOfflineSync,
+  useStorageHealth,
 } from "@/lib/pharmacy/offline";
+import {
+  type BootstrapOutcome,
+  classifyFetchError,
+} from "@/lib/pharmacy/offline/cloud";
 import { createUuid } from "@/lib/pharmacy/offline/storage";
+import {
+  commitSaleLocally,
+  fetchLocalMedicines,
+} from "@/lib/pharmacy/local-tx";
 import type { Medicine } from "@/lib/phase2/types";
 import type { PharmacySettings, ReceiptData } from "@/lib/pharmacy/types";
 import type { HospitalConfig } from "@/lib/hospital/types";
@@ -60,6 +71,7 @@ import {
   type IndexedMedicine,
   buildMedicineIndex,
   detectBarcodeFormat,
+  findDuplicateMedicineKey,
   searchMedicines,
 } from "@/lib/pharmacy/barcode/scan";
 import { useVirtualList } from "@/lib/pharmacy/virtual-list";
@@ -117,14 +129,23 @@ function expiryValid(expiry?: string | null): boolean {
   return new Date(`${expiry}T23:59:59`) >= new Date();
 }
 
+/** Search/scanner results carry price+stock so the offline catalog prices correctly. */
+type PosMedicine = IndexedMedicine & {
+  selling_price?: number | string | null;
+  stock_qty?: number | string | null;
+  mrp?: number | string | null;
+  expiry_date?: string | null;
+  batch_number?: string | null;
+};
+
 export function PosView() {
   const session = useAdminSession();
   const storage = useOfflineStore();
+  const storageHealth = useStorageHealth();
   const offline = useOfflineSync({
     autoSync: true,
     pullEntities: ["sale", "return", "held_bill", "branch", "shift", "settings"],
-  });
-  const cachedMeds = useOfflineEntities<Record<string, unknown>>("medicine");
+  });  const cachedMeds = useOfflineEntities<Record<string, unknown>>("medicine");
   const cachedSales = useOfflineEntities<Record<string, unknown>>("sale");
   const cachedHeld = useOfflineEntities<Record<string, unknown>>("held_bill");
   const cachedSettings = useOfflineEntities<Record<string, unknown>>("settings");
@@ -145,6 +166,8 @@ export function PosView() {
   const [unknownForm, setUnknownForm] = useState({ name: "", price: "", stock: "" });
   const [showHeld, setShowHeld] = useState(false);
   const [showBills, setShowBills] = useState(false);
+  const cloud = useCloudStatus();
+  const [bootstrap, setBootstrap] = useState<BootstrapOutcome | null>(null);
 
   // Patient info
   const [patientName, setPatientName] = useState("Walk-in Customer");
@@ -154,32 +177,95 @@ export function PosView() {
   const [doctorName, setDoctorName] = useState("");
   const [prescriptionNumber, setPrescriptionNumber] = useState("");
 
+  /**
+   * Canonical local stock refresh: the SQLite store is the stock authority,
+   * so after every committed transaction (and on mount) the POS re-reads the
+   * medicine list from it and merges the rows into the catalog state and the
+   * IndexedDB cache. Search results, scanner resolution, stock badges and
+   * cart validation all read from the same merged state — no shadow system.
+   */
+  const mergeLocalMedicines = useCallback(async () => {
+    try {
+      const rows = await fetchLocalMedicines();
+      if (!rows.length) return;
+      setServerMeds((prev) => {
+        const map = new Map(prev.map((m) => [m.id, m as unknown as Record<string, unknown>]));
+        for (const row of rows) map.set(row.id, row);
+        return [...map.values()] as unknown as Medicine[];
+      });
+      for (const row of rows) {
+        await storage.putEntity("medicine", row.id, row, "local");
+      }
+    } catch {
+      // SQLite rows stay authoritative; the next successful refresh wins.
+    }
+  }, [storage]);
+
   useEffect(() => {
     let active = true;
     void (async () => {
-      try {
-        const res = await fetch("/api/admin/pharmacy/dashboard", { cache: "no-store" });
-        const json = (await res.json()) as { data?: { settings: PharmacySettings; hospital: HospitalConfig } };
-        if (active && json.data) {
-          setSettings(json.data.settings);
-          setHospital(json.data.hospital);
-          await storage.putEntity("settings", "server", json.data.settings as Record<string, unknown>, "local");
-        }
-      } catch {
-        /* offline — fall back to cached settings below */
+      const outcome = await runBootstrap(
+        {
+          dashboard: async () => {
+            try {
+              const res = await fetch("/api/admin/pharmacy/dashboard", { cache: "no-store" });
+              const json = (await res.json().catch(() => null)) as {
+                data?: { settings: PharmacySettings; hospital: HospitalConfig };
+                error?: string;
+              } | null;
+              if (!res.ok || !json?.data) {
+                return { ok: false as const, kind: classifyFetchError(new Error(json?.error || `HTTP ${res.status}`), { status: res.status, bodyError: json?.error ?? null }), message: json?.error || "dashboard failed" };
+              }
+              return { ok: true as const, data: { settings: json.data.settings as Record<string, unknown>, hospital: json.data.hospital as Record<string, unknown> } };
+            } catch (err) {
+              return { ok: false as const, kind: classifyFetchError(err), message: err instanceof Error ? err.message : "fetch failed" };
+            }
+          },
+          medicines: async () => {
+            try {
+              const res = await fetch("/api/phase2/pharmacy?kind=medicines", { cache: "no-store" });
+              const json = (await res.json().catch(() => null)) as {
+                data?: unknown[];
+                error?: string;
+              } | null;
+              if (!res.ok || !Array.isArray(json?.data)) {
+                return { ok: false as const, kind: classifyFetchError(new Error(json?.error || `HTTP ${res.status}`), { status: res.status, bodyError: json?.error ?? null }), message: json?.error || "medicines failed" };
+              }
+              return { ok: true as const, data: json.data as Array<Record<string, unknown>> };
+            } catch (err) {
+              return { ok: false as const, kind: classifyFetchError(err), message: err instanceof Error ? err.message : "fetch failed" };
+            }
+          },
+        },
+        storage
+      );
+      if (!active) return;
+      setBootstrap(outcome);
+      if (outcome.settings) {
+        setSettings(outcome.settings.settings as unknown as PharmacySettings);
+        setHospital(outcome.settings.hospital as unknown as HospitalConfig);
+        await storage.putEntity("settings", "server", outcome.settings.settings, "local");
       }
-      try {
-        const res = await fetch("/api/phase2/pharmacy?kind=medicines", { cache: "no-store" });
-        const json = (await res.json()) as { data?: Medicine[] };
-        if (active && Array.isArray(json.data)) setServerMeds(json.data);
-      } catch {
-        /* offline — cached medicines only */
-      }
+      setServerMeds(outcome.medicines as unknown as Medicine[]);
+      void mergeLocalMedicines();
     })();
     return () => {
       active = false;
     };
-  }, [storage]);
+  }, [storage, mergeLocalMedicines]);
+
+  // ---- cloud recovery: resume sync and confirm exactly once per transition ----
+  const prevCloudState = useRef<string>("connected");
+  useEffect(() => {
+    const prev = prevCloudState.current;
+    prevCloudState.current = cloud.state;
+    if (prev === "connected" || cloud.state !== "connected") return;
+    // Unavailable/error → connected: notify once, resume automatically.
+    toast.success("Connection restored — syncing…");
+    void offline.syncNow().then((result) => {
+      if (result.errors.length === 0) toast.success("Synced ✓");
+    });
+  }, [cloud.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (settings || !cachedSettings.length) return;
@@ -203,8 +289,10 @@ export function PosView() {
   const cashierName = session.name || resolvedSettings.pharmacist_name || "Cashier";
 
   // ---- medicine index (merged server + offline cache) ----
-  const medicines: IndexedMedicine[] = useMemo(() => {
-    const map = new Map<string, IndexedMedicine>();
+  // Cached rows carry price/stock too, so offline search & scanning price
+  // correctly from the local catalog (no network, no stock-authority change).
+  const medicines: PosMedicine[] = useMemo(() => {
+    const map = new Map<string, PosMedicine>();
     for (const m of serverMeds) {
       map.set(m.id, {
         id: m.id,
@@ -212,6 +300,10 @@ export function PosView() {
         sku: m.sku || null,
         generic_name: m.generic_name || null,
         manufacturer: m.manufacturer || null,
+        selling_price: m.selling_price ?? null,
+        stock_qty: m.stock_qty ?? null,
+        expiry_date: m.expiry_date ?? null,
+        batch_number: m.batch_number ?? null,
       });
     }
     for (const rec of cachedMeds) {
@@ -223,6 +315,11 @@ export function PosView() {
         barcode: d.barcode ? String(d.barcode) : null,
         generic_name: d.generic_name ? String(d.generic_name) : null,
         manufacturer: d.manufacturer ? String(d.manufacturer) : null,
+        selling_price: (d.selling_price as number | string | null) ?? null,
+        stock_qty: (d.stock_qty as number | string | null) ?? null,
+        mrp: (d.mrp as number | string | null) ?? null,
+        expiry_date: d.expiry_date ? String(d.expiry_date) : null,
+        batch_number: d.batch_number ? String(d.batch_number) : null,
       });
     }
     return [...map.values()];
@@ -308,6 +405,10 @@ export function PosView() {
   };
 
   const onScan = (raw: string, medicine: IndexedMedicine | null) => {
+    // Defense-in-depth: an empty / whitespace-only payload must never
+    // reach the cart (the pipeline already blocks these — this is the
+    // POS's own boundary).
+    if (!String(raw ?? "").trim()) return;
     if (!medicine) {
       setUnknownCode(raw);
       setUnknownForm({ name: "", price: "", stock: "" });
@@ -325,6 +426,20 @@ export function PosView() {
     e.preventDefault();
     if (!unknownCode || !unknownForm.name.trim()) {
       toast.error("Medicine name is required.");
+      return;
+    }
+    const dup = findDuplicateMedicineKey(medicines, {
+      name: unknownForm.name.trim(),
+      sku: unknownCode,
+      barcode: unknownCode,
+    });
+    if (dup) {
+      toast.error(
+        dup.kind === "name"
+          ? `${dup.medicine.name} already exists — use it instead of creating a duplicate.`
+          : `SKU / barcode ${unknownCode} is already used by ${dup.medicine.name}.`
+      );
+      setUnknownCode(null);
       return;
     }
     const id = createUuid();
@@ -414,59 +529,118 @@ export function PosView() {
         sale_number: saleNumber,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        payments: result.settlement
+          .filter((r) => Number(r.amount) > 0)
+          .map((r) => ({
+            method: r.methodId,
+            amount: Number(r.amount),
+            reference:
+              tenders.find((t) => t.methodId === r.methodId)?.reference || null,
+          })),
       } as Record<string, unknown>;
 
-      await enqueueMutation(storage, {
-        id,
-        hospitalId: "local",
-        entity: "sale",
-        action: "create",
-        payload,
-        targetKey: `sale::${id}`,
-      });
+      // 1) COMMIT — the SQLite transaction is the authority. Unless the
+      //    transaction commits there is NO successful sale, NO payment
+      //    state, NO receipt, NO stock decrement and NO queue entry.
+      const tx = await commitSaleLocally(payload);
+      if (!tx.ok) {
+        if (tx.kind === "stock") {
+          toast.error(tx.error);
+        } else if (tx.kind === "network") {
+          toast.error("Local store is unreachable — the sale was not recorded.");
+        } else {
+          toast.error(`Sale was not recorded: ${tx.error}`);
+        }
+        return;
+      }
 
-      const receipt = buildReceiptData({
-        sale: { id, sale_number: saleNumber, created_at: new Date().toISOString() },
-        hospital: {
-          name: resolvedHospital.branding.name || "Sri Srinivasa Hospital",
-          address: [
-            resolvedHospital.contact.address_line1,
-            resolvedHospital.contact.city,
-            resolvedHospital.contact.state,
-            resolvedHospital.contact.pincode,
-          ]
-            .filter(Boolean)
-            .join(", "),
-          phone: resolvedHospital.contact.phones?.[0] || "",
-          email: resolvedHospital.contact.email || "",
-          gst: resolvedSettings.gst_number || "",
-          drug_license: resolvedSettings.drug_license_number || "",
-          logo_url: resolvedHospital.branding.logo_url || "",
-        },
-        settings: resolvedSettings,
-        cartLines: cart,
-        totals,
-        amountPaid: result.payload.amount_paid,
-        amountReturned: result.payload.amount_returned,
-        paymentMethod: result.payload.payment_method,
-        paymentReference: result.payload.payment_reference || undefined,
-        cashierName,
-        pharmacistName: resolvedSettings.pharmacist_name || "",
-        customer: {
-          patientName,
-          patientPhone: patientPhone || undefined,
-          patientAge: patientAge ? Number(patientAge) : null,
-          saleType,
-          doctorName: doctorName || null,
-          prescriptionNumber: prescriptionNumber || null,
-        },
-        printedBy: cashierName,
-        transactionId: id,
-      });
+      const committed = tx.data;
+
+      // 2) Receipt becomes FINAL only from the committed transaction row.
+      const receipt =
+        receiptDataFromSale(committed, {
+          hospital: {
+            name: resolvedHospital.branding.name || "Sri Srinivasa Hospital",
+            address: [
+              resolvedHospital.contact.address_line1,
+              resolvedHospital.contact.city,
+              resolvedHospital.contact.state,
+              resolvedHospital.contact.pincode,
+            ]
+              .filter(Boolean)
+              .join(", "),
+            phone: resolvedHospital.contact.phones?.[0] || "",
+            email: resolvedHospital.contact.email || "",
+            gst: resolvedSettings.gst_number || "",
+            drug_license: resolvedSettings.drug_license_number || "",
+            logo_url: resolvedHospital.branding.logo_url || "",
+          },
+          settings: resolvedSettings,
+          cashierName,
+          pharmacistName: resolvedSettings.pharmacist_name || "",
+        }) ??
+        buildReceiptData({
+          sale: { id: String(committed.id), sale_number: saleNumber, created_at: String(committed.created_at ?? "") },
+          hospital: {
+            name: resolvedHospital.branding.name || "Sri Srinivasa Hospital",
+            address: [
+              resolvedHospital.contact.address_line1,
+              resolvedHospital.contact.city,
+              resolvedHospital.contact.state,
+              resolvedHospital.contact.pincode,
+            ]
+              .filter(Boolean)
+              .join(", "),
+            phone: resolvedHospital.contact.phones?.[0] || "",
+            email: resolvedHospital.contact.email || "",
+            gst: resolvedSettings.gst_number || "",
+            drug_license: resolvedSettings.drug_license_number || "",
+            logo_url: resolvedHospital.branding.logo_url || "",
+          },
+          settings: resolvedSettings,
+          cartLines: cart,
+          totals,
+          amountPaid: Number(committed.amount_paid ?? result.payload.amount_paid),
+          amountReturned: Number(committed.amount_returned ?? result.payload.amount_returned),
+          paymentMethod: String(committed.payment_method ?? result.payload.payment_method),
+          paymentReference:
+            (committed.payment_reference as string) || result.payload.payment_reference || undefined,
+          cashierName,
+          pharmacistName: resolvedSettings.pharmacist_name || "",
+          customer: {
+            patientName,
+            patientPhone: patientPhone || undefined,
+            patientAge: patientAge ? Number(patientAge) : null,
+            saleType,
+            doctorName: doctorName || null,
+            prescriptionNumber: prescriptionNumber || null,
+          },
+          printedBy: cashierName,
+          transactionId: String(committed.id),
+        });
+
+      // 3) Queue the COMMITTED transaction for cloud sync. Idempotent by
+      //    sale_number server-side, so a retry can never create a second
+      //    local sale or double-deduct stock.
+      try {
+        await enqueueMutation(storage, {
+          id: String(committed.id),
+          hospitalId: "local",
+          entity: "sale",
+          action: "create",
+          payload,
+          targetKey: `sale::${committed.id}`,
+        });
+      } catch {
+        toast.error("Sale committed locally, but could not be queued for cloud sync.");
+      }
+
+      // 4) Immediate stock refresh from the SQLite authority.
+      void mergeLocalMedicines();
 
       toast.success(
-        `${saleNumber} · ${formatMoney(totals.grand_total, currency)} saved offline${
-          offline.online ? "" : " (will sync automatically)"
+        `${saleNumber} · ${formatMoney(totals.grand_total, currency)} recorded${
+          cloud.state === "connected" ? "" : " (will sync automatically)"
         }`
       );
       resetCart();
@@ -561,6 +735,55 @@ export function PosView() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
+      {!storageHealth.ready && (
+        <div className="lg:col-span-2">
+          <div className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+            Offline storage is unavailable
+            {storageHealth.error ? ` — ${storageHealth.error}` : ""}. Sales
+            cannot be saved offline. Try reloading the page; if it persists,
+            the browser cannot open its local database.
+          </div>
+        </div>
+      )}
+      {storageHealth.ready && cloud.state === "unavailable" && (
+        <div className="lg:col-span-2">
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <CloudOff className="h-4 w-4 shrink-0" aria-hidden />
+            <span>
+              Cloud unavailable — working offline. New sales are saved locally
+              and will sync automatically when the connection returns.
+            </span>
+          </div>
+        </div>
+      )}
+      {storageHealth.ready &&
+        (cloud.state === "error" || bootstrap?.catalogState === "error") && (
+          <div className="lg:col-span-2">
+            <div className="flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+              <Cloud className="h-4 w-4 shrink-0" aria-hidden />
+              <span>
+                {cloud.kind === "unauthorized" || bootstrap?.authKind === "unauthorized"
+                  ? "Session expired — please sign in again."
+                  : cloud.kind === "forbidden" || bootstrap?.authKind === "forbidden"
+                    ? "You do not have permission to use pharmacy cloud sync."
+                    : cloud.message || "Cloud sync error — check your connection."}
+              </span>
+            </div>
+          </div>
+        )}
+      {storageHealth.ready &&
+        bootstrap?.catalogState === "empty" &&
+        !(cloud.state === "error") && (
+          <div className="lg:col-span-2">
+            <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <ScanSearch className="h-4 w-4 shrink-0" aria-hidden />
+              <span>
+                Medicine catalog is not available offline yet. Connect to the
+                cloud once to download it, or add medicines in Inventory.
+              </span>
+            </div>
+          </div>
+        )}
       {/* ======================= LEFT: scan + search + cart ======================= */}
       <div className="space-y-4">
         <Card>
@@ -579,13 +802,35 @@ export function PosView() {
                   </Button>
                 ))}
               </div>
-              <Badge variant={offline.online ? "outline" : "secondary"}>
-                {offline.online ? (
-                  <Cloud className="h-3 w-3" aria-hidden />
-                ) : (
-                  <CloudOff className="h-3 w-3" aria-hidden />
+              <Badge variant="outline" className="gap-1.5">
+                <span
+                  className={
+                    storageHealth.ready ? "text-emerald-500" : "text-rose-500"
+                  }
+                  aria-hidden
+                >
+                  ●
+                </span>
+                <span>{storageHealth.ready ? "Local ready" : "Local error"}</span>
+                <span className="text-muted-foreground">·</span>
+                {cloud.state === "connected" && (
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    ● Cloud connected
+                  </span>
                 )}
-                {offline.online ? "Online" : "Offline"} · {offline.stats.pendingCount} queued
+                {cloud.state === "unavailable" && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    ○ Cloud unavailable
+                  </span>
+                )}
+                {cloud.state === "syncing" && <span>○ Syncing…</span>}
+                {cloud.state === "error" && (
+                  <span className="text-rose-600 dark:text-rose-400">
+                    ○ Cloud error
+                  </span>
+                )}
+                <span className="text-muted-foreground">·</span>
+                <span>{offline.stats.pendingCount} queued</span>
                 {offline.syncing && <RefreshCw className="ml-1 h-3 w-3 animate-spin" />}
               </Badge>
             </div>
@@ -910,14 +1155,14 @@ export function PosView() {
             >
               {busy ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
-              ) : offline.online ? (
+              ) : cloud.state === "connected" ? (
                 <Printer className="h-5 w-5" />
               ) : (
                 <CloudOff className="h-5 w-5" />
               )}
               {busy
                 ? "Saving…"
-                : `Charge ${formatMoney(totals.grand_total, currency)}${offline.online ? "" : " (offline)"}`}
+                : `Charge ${formatMoney(totals.grand_total, currency)}${cloud.state === "connected" ? "" : " (offline)"}`}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               {cashierName} · bills are saved locally and sync automatically
