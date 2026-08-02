@@ -1,5 +1,6 @@
 import type { FinanceExpense } from "@/lib/finance/types";
 import { generateId } from "@/lib/utils";
+import { gatedDemoStore } from "@/lib/supabase/demo-gate";
 
 const expenses: FinanceExpense[] = [
   {
@@ -22,7 +23,7 @@ const expenses: FinanceExpense[] = [
   },
 ];
 
-export const demoFinance = {
+const rawDemoFinance = {
   list(): FinanceExpense[] {
     return [...expenses].sort((a, b) =>
       b.expense_date.localeCompare(a.expense_date)
@@ -44,3 +45,5 @@ export const demoFinance = {
     return true;
   },
 };
+
+export const demoFinance = gatedDemoStore("finance demo store", rawDemoFinance);

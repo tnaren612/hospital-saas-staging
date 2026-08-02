@@ -12,6 +12,7 @@ import type {
   Prescription,
   Phase2DashboardStats,
 } from "@/lib/phase2/types";
+import { gatedDemoStore } from "@/lib/supabase/demo-gate";
 
 function id(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -102,7 +103,7 @@ function store() {
   return g.__ssh_phase2;
 }
 
-export const demoPhase2 = {
+const rawDemoPhase2 = {
   listTests: () => store().tests,
   listOrders: () => [...store().orders].sort((a, b) => b.created_at.localeCompare(a.created_at)),
   listReports: () => [...store().reports].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -184,6 +185,7 @@ export const demoPhase2 = {
     }
     const row: Medicine = {
       id: med.id || id("med"),
+      sku: med.sku || "",
       name: med.name,
       generic_name: med.generic_name || "",
       manufacturer: med.manufacturer || "",
@@ -203,8 +205,10 @@ export const demoPhase2 = {
   createSale(input: {
     patient_name: string;
     patient_phone?: string;
+    patient_age?: number | null;
     sale_type: "walk_in" | "prescription";
     payment_method: string;
+    payment_status?: "pending" | "paid" | "refunded" | "cancelled";
     items: { medicine_id?: string; name: string; qty: number; price: number }[];
     discount?: number;
     tax?: number;
@@ -217,17 +221,24 @@ export const demoPhase2 = {
       sale_number: ref("PH"),
       patient_name: input.patient_name,
       patient_phone: input.patient_phone || "",
+      patient_age: input.patient_age ?? null,
       sale_type: input.sale_type,
+      subtotal,
+      discount,
+      tax,
       grand_total: Math.max(0, subtotal - discount + tax),
       payment_method: input.payment_method,
-      payment_status: "paid",
+      payment_status: input.payment_status || "paid",
       line_items: input.items,
       created_at: new Date().toISOString(),
     };
     for (const item of input.items) {
       if (!item.medicine_id) continue;
       const m = store().medicines.find((x) => x.id === item.medicine_id);
-      if (m) m.stock_qty = Math.max(0, m.stock_qty - item.qty);
+      if (m && m.stock_qty < item.qty) {
+        throw new Error(`Insufficient stock for ${item.name}. Available: ${m.stock_qty}`);
+      }
+      if (m) m.stock_qty -= item.qty;
     }
     store().sales.unshift(sale);
     return sale;
@@ -333,3 +344,5 @@ export const demoPhase2 = {
     };
   },
 };
+
+export const demoPhase2 = gatedDemoStore("phase2 demo store", rawDemoPhase2);

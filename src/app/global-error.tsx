@@ -8,8 +8,9 @@ export default function GlobalError({
   reset: () => void;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
+        suppressHydrationWarning
         style={{
           margin: 0,
           fontFamily: "system-ui, sans-serif",

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LabManager } from "@/components/admin/hms/lab-manager";
+import { PortalLogout } from "@/components/auth/portal-logout";
 import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
@@ -14,7 +15,8 @@ export const metadata: Metadata = createMetadata({
  */
 export default function LaboratoryPortalPage() {
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <div className="container mx-auto max-w-6xl space-y-4 px-4 py-8">
+      <PortalLogout />
       <LabManager />
     </div>
   );

@@ -1,5 +1,5 @@
-import { PharmacyManager } from "@/components/admin/hms/pharmacy-manager";
+import { PharmacyHub } from "@/components/admin/hms/pharmacy-hub";
 
 export default function AdminPharmacyPage() {
-  return <PharmacyManager />;
+  return <PharmacyHub />;
 }

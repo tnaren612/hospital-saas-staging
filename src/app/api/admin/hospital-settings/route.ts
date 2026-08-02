@@ -41,6 +41,7 @@ const patchSchema = z.object({
   seo: z.record(z.string()).optional(),
   social: z.record(z.string()).optional(),
   working_hours: z.record(z.string()).optional(),
+  data_management: z.record(z.unknown()).optional(),
 });
 
 export async function PATCH(request: Request) {

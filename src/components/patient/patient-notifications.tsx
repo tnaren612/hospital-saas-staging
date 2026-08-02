@@ -7,12 +7,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { PatientNotification } from "@/lib/patient/types";
-import { getDemoDashboard } from "@/lib/patient/service";
+import { getDemoPatientName } from "@/lib/patient/service";
 
 export function PatientNotificationsPage() {
   const [items, setItems] = useState<PatientNotification[]>([]);
   const [loading, setLoading] = useState(true);
-  const name = getDemoDashboard().patient?.full_name;
+  const name = getDemoPatientName();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,7 +48,7 @@ export function PatientNotificationsPage() {
   };
 
   return (
-    <PatientShell patientName={name}>
+    <PatientShell patientName={name ?? undefined}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Notifications</h1>

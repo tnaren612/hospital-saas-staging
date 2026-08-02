@@ -11,7 +11,7 @@ export const metadata: Metadata = createMetadata({
 /** Pharmacist portal — production pharmacy manager. */
 export default function PharmacyPortalPage() {
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8">
+    <div className="container mx-auto max-w-6xl space-y-4 px-4 py-8">
       <PharmacyManager />
     </div>
   );

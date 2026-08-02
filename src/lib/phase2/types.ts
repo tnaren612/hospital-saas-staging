@@ -61,6 +61,7 @@ export type Medicine = {
   generic_name?: string;
   manufacturer: string;
   batch_number: string;
+  sku?: string;
   category?: string;
   purchase_price: number;
   selling_price: number;
@@ -76,7 +77,11 @@ export type PharmacySale = {
   sale_number: string;
   patient_name: string;
   patient_phone?: string;
+  patient_age?: number | null;
   sale_type: "walk_in" | "prescription";
+  subtotal?: number;
+  discount?: number;
+  tax?: number;
   grand_total: number;
   payment_method: string;
   payment_status: string;

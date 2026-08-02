@@ -371,8 +371,10 @@ export async function createPharmacySale(
   input: {
     patient_name: string;
     patient_phone?: string;
+    patient_age?: number | null;
     sale_type: "walk_in" | "prescription";
     payment_method: string;
+    payment_status?: "pending" | "paid" | "refunded" | "cancelled";
     items: {
       medicine_id?: string;
       name: string;
@@ -392,30 +394,59 @@ export async function createPharmacySale(
       0,
       subtotal - (input.discount || 0) + (input.tax || 0)
     );
+    const paymentStatus = input.payment_status || "paid";
     const sb = client();
-    const { data, error } = await sb
+    for (const item of input.items) {
+      if (!item.medicine_id) continue;
+      let stockQuery = sb
+        .from("medicines")
+        .select("stock_qty")
+        .eq("id", item.medicine_id);
+      stockQuery = withHospitalEq(stockQuery, opts?.hospitalId);
+      const { data: stock, error: stockError } = await stockQuery.maybeSingle();
+      if (stockError) throw stockError;
+      if (!stock || Number(stock.stock_qty) < item.qty) {
+        throw new Error(`Insufficient stock for ${item.name}. Available: ${Number(stock?.stock_qty || 0)}`);
+      }
+    }
+    const saleRow = stampHospital(
+      {
+        sale_number: `PH-${Date.now().toString().slice(-8)}`,
+        patient_name: input.patient_name,
+        patient_phone: input.patient_phone || "",
+        patient_age: input.patient_age ?? null,
+        sale_type: input.sale_type,
+        prescription_id: input.prescription_id || null,
+        subtotal,
+        discount: input.discount || 0,
+        tax: input.tax || 0,
+        grand_total: grand,
+        payment_method: input.payment_method,
+        payment_status: paymentStatus,
+        line_items: input.items,
+      },
+      opts?.hospitalId
+    );
+    let { data, error } = await sb
       .from("pharmacy_sales")
-      .insert(
-        stampHospital(
-          {
-            sale_number: `PH-${Date.now().toString().slice(-8)}`,
-            patient_name: input.patient_name,
-            patient_phone: input.patient_phone || "",
-            sale_type: input.sale_type,
-            prescription_id: input.prescription_id || null,
-            subtotal,
-            discount: input.discount || 0,
-            tax: input.tax || 0,
-            grand_total: grand,
-            payment_method: input.payment_method,
-            payment_status: "paid",
-            line_items: input.items,
-          },
-          opts?.hospitalId
-        )
-      )
+      .insert(saleRow)
       .select()
       .single();
+    // Older DBs without patient_age column — retry without it
+    if (error && /patient_age/i.test(error.message)) {
+      const { patient_age: _age, ...withoutAge } = saleRow as Record<
+        string,
+        unknown
+      > & { patient_age?: unknown };
+      void _age;
+      const retry = await sb
+        .from("pharmacy_sales")
+        .insert(withoutAge)
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
     if (error) throw error;
     for (const item of input.items) {
       if (!item.medicine_id) continue;
@@ -431,7 +462,8 @@ export async function createPharmacySale(
           .update({ stock_qty: Math.max(0, Number(m.stock_qty) - item.qty) })
           .eq("id", item.medicine_id);
         uq = withHospitalEq(uq, opts?.hospitalId);
-        await uq;
+        const { error: updateError } = await uq;
+        if (updateError) throw updateError;
         await sb.from("pharmacy_stock_movements").insert(
           stampHospital(
             {
@@ -446,7 +478,8 @@ export async function createPharmacySale(
       }
     }
     return data as PharmacySale;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Insufficient stock")) throw error;
     return demoPhase2.createSale(input);
   }
 }

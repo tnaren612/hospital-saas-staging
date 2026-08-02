@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/admin/ui/skeleton";
 import { formatDate } from "@/lib/utils";
 import type { PatientDashboardData } from "@/lib/patient/types";
+import { allowDemoFallback } from "@/lib/supabase/demo-gate";
 import {
   getDemoDashboard,
   getPatientDashboard,
@@ -37,15 +38,22 @@ export function PatientDashboard() {
       const dashboard = await getPatientDashboard();
       setData(dashboard);
       if (dashboard.mode === "unauthenticated") {
-          // try demo local
+        if (allowDemoFallback()) {
           const demo = getDemoDashboard();
           if (demo.patient) setData(demo);
           else router.replace("/patient/login");
+        } else {
+          router.replace("/patient/login");
+        }
       }
     } catch {
-      const demo = getDemoDashboard();
-      if (demo.patient) setData(demo);
-      else router.replace("/patient/login");
+      if (allowDemoFallback()) {
+        const demo = getDemoDashboard();
+        if (demo.patient) setData(demo);
+        else router.replace("/patient/login");
+      } else {
+        router.replace("/patient/login");
+      }
     } finally {
       setLoading(false);
     }

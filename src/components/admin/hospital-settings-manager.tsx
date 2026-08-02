@@ -22,7 +22,8 @@ type Tab =
   | "auth"
   | "prefixes"
   | "legal"
-  | "templates";
+  | "templates"
+  | "data";
 
 export function HospitalSettingsManager() {
   const [tab, setTab] = useState<Tab>("identity");
@@ -75,6 +76,7 @@ export function HospitalSettingsManager() {
           seo: config.seo,
           social: config.social,
           working_hours: config.working_hours,
+          data_management: config.data_management,
         }),
       });
       const json = await res.json();
@@ -98,6 +100,7 @@ export function HospitalSettingsManager() {
     { id: "prefixes", label: "Prefixes" },
     { id: "legal", label: "Legal & Tax" },
     { id: "templates", label: "Templates" },
+    { id: "data", label: "Data" },
   ];
 
   if (loading) {
@@ -840,7 +843,181 @@ export function HospitalSettingsManager() {
           </CardContent>
         </Card>
       )}
+
+      {tab === "data" && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="grid gap-4 p-6 sm:grid-cols-2">
+              <Field label="Data Management enabled">
+                <Toggle
+                  checked={config.data_management.enabled}
+                  onChange={(v) =>
+                    setConfig({
+                      ...config,
+                      data_management: { ...config.data_management, enabled: v },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Duplicate handling">
+                <select
+                  className="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  value={config.data_management.duplicateMode}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      data_management: {
+                        ...config.data_management,
+                        duplicateMode: e.target.value as "update" | "skip",
+                      },
+                    })
+                  }
+                >
+                  <option value="update">Update existing records</option>
+                  <option value="skip">Skip existing records</option>
+                </select>
+              </Field>
+              <Field label="Max upload size (MB)">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={config.data_management.maxFileSizeMB}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      data_management: {
+                        ...config.data_management,
+                        maxFileSizeMB: Number(e.target.value) || 1,
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Allowed formats">
+                <div className="space-y-1.5">
+                  {["xlsx", "xls", "csv"].map((fmt) => (
+                    <label
+                      key={fmt}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={config.data_management.allowedFormats.includes(fmt)}
+                        onChange={(e) => {
+                          const cur = config.data_management.allowedFormats;
+                          const next = e.target.checked
+                            ? [...cur, fmt]
+                            : cur.filter((f) => f !== fmt);
+                          setConfig({
+                            ...config,
+                            data_management: {
+                              ...config.data_management,
+                              allowedFormats: next,
+                            },
+                          });
+                        }}
+                      />
+                      .{fmt}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="grid gap-4 p-6 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <h3 className="mb-1 text-sm font-semibold">Backups</h3>
+                <p className="text-xs text-muted-foreground">
+                  Backup metadata is stored per tenant; schedule expression is
+                  consumed by your serverless cron / scheduler.
+                </p>
+              </div>
+              <Field label="Automatic backups enabled">
+                <Toggle
+                  checked={config.data_management.backup.enabled}
+                  onChange={(v) =>
+                    setConfig({
+                      ...config,
+                      data_management: {
+                        ...config.data_management,
+                        backup: { ...config.data_management.backup, enabled: v },
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Schedule (cron expression)">
+                <Input
+                  placeholder="0 2 * * *"
+                  value={config.data_management.backup.scheduleCron || ""}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      data_management: {
+                        ...config.data_management,
+                        backup: {
+                          ...config.data_management.backup,
+                          scheduleCron: e.target.value || null,
+                        },
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Backups to keep">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={config.data_management.backup.keepCount}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      data_management: {
+                        ...config.data_management,
+                        backup: {
+                          ...config.data_management.backup,
+                          keepCount: Number(e.target.value) || 5,
+                        },
+                      },
+                    })
+                  }
+                />
+              </Field>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+        checked ? "bg-primary-600" : "bg-muted"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
   );
 }
 

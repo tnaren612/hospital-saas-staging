@@ -33,6 +33,7 @@ export const medicineSchema = z.object({
   generic_name: z.string().max(200).optional(),
   manufacturer: z.string().max(200).optional(),
   batch_number: z.string().max(100).optional(),
+  sku: z.string().max(100).optional(),
   category: z.string().max(100).optional(),
   purchase_price: z.number().nonnegative(),
   selling_price: z.number().nonnegative(),
@@ -45,9 +46,13 @@ export const medicineSchema = z.object({
 export const pharmacySaleSchema = z.object({
   patient_name: z.string().min(1).max(120),
   patient_phone: z.string().max(15).optional(),
+  patient_age: z.number().int().positive().max(150).optional().nullable(),
   sale_type: z.enum(["walk_in", "prescription"]).default("walk_in"),
   prescription_id: z.string().optional().nullable(),
-  payment_method: z.string().default("cash"),
+  payment_method: z
+    .enum(["cash", "upi", "gpay", "phonepe", "card", "online", "razorpay", "other"])
+    .default("cash"),
+  payment_status: z.enum(["pending", "paid", "refunded", "cancelled"]).optional(),
   discount: z.number().nonnegative().optional(),
   tax: z.number().nonnegative().optional(),
   items: z

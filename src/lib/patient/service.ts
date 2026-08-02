@@ -10,6 +10,7 @@ import {
   hasSupabaseConfig,
   isSupabaseBackendEnabled,
 } from "@/lib/supabase/env";
+import { allowDemoFallback, ensureDemoAllowed } from "@/lib/supabase/demo-gate";
 import {
   getAppointments as getLocalAppointments,
   getPatient as getLocalPatient,
@@ -89,8 +90,9 @@ function mapAppointment(row: Record<string, unknown>): Appointment {
   };
 }
 
-/** Demo dashboard from localStorage (existing behaviour). */
+/** Demo dashboard from localStorage (existing behaviour). Never runs in production. */
 export function getDemoDashboard(): PatientDashboardData {
+  ensureDemoAllowed("patient demo dashboard");
   const p = getLocalPatient();
   if (!p) {
     return {
@@ -163,27 +165,61 @@ export function getDemoDashboard(): PatientDashboardData {
   };
 }
 
+/** Demo-mode greeting name (null outside development — no demo data in prod). */
+export function getDemoPatientName(): string | null {
+  if (!allowDemoFallback()) return null;
+  return getDemoDashboard().patient?.full_name ?? null;
+}
+
+/** Empty, legitimate "not signed in" state for production portal visitors. */
+function unauthenticatedDashboard(): PatientDashboardData {
+  return {
+    mode: "unauthenticated",
+    patient: null,
+    counts: {
+      upcoming: 0,
+      completed: 0,
+      cancelled: 0,
+      reports: 0,
+      packages: 0,
+      unreadNotifications: 0,
+    },
+    upcoming: [],
+    recentAppointments: [],
+    reports: [],
+    notifications: [],
+    assignedDoctor: null,
+    packages: [],
+  };
+}
+
 export async function getPatientDashboard(
   client?: ReturnType<typeof createClientOrNull>,
   accessToken?: string,
   authenticatedUser?: User
 ): Promise<PatientDashboardData> {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
+    if (!allowDemoFallback()) return unauthenticatedDashboard();
     return getDemoDashboard();
   }
 
   const supabase = client ?? createClientOrNull();
-  if (!supabase) return getDemoDashboard();
+  if (!supabase) {
+    if (!allowDemoFallback()) return unauthenticatedDashboard();
+    return getDemoDashboard();
+  }
 
   const user =
     authenticatedUser ??
     (await supabase.auth.getUser(accessToken)).data.user;
 
   if (!user) {
-    // Fall back to demo local patient if present
-    const demo = getDemoDashboard();
-    if (demo.patient) return demo;
-    return { ...demo, mode: "unauthenticated" };
+    // Logged-out visitors get the unauthenticated state; demo data is dev-only.
+    if (allowDemoFallback()) {
+      const demo = getDemoDashboard();
+      if (demo.patient) return demo;
+    }
+    return unauthenticatedDashboard();
   }
 
   // Ensure portal patient row
@@ -387,12 +423,19 @@ export async function getPatientDashboard(
 export async function getPatientAppointments(): Promise<Appointment[]> {
   const dash = await getPatientDashboard();
   if (dash.mode === "demo" && dash.patient?.phone) {
+    ensureDemoAllowed("patient appointment listing (local)");
     return getLocalAppointments().filter((a) => a.phone === dash.patient!.phone);
   }
-  if (!isSupabaseBackendEnabled()) return [];
+  if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("patient appointment listing");
+    return [];
+  }
 
   const supabase = createClientOrNull();
-  if (!supabase) return [];
+  if (!supabase) {
+    ensureDemoAllowed("patient appointment listing");
+    return [];
+  }
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -417,6 +460,7 @@ export async function cancelPatientAppointment(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
+    ensureDemoAllowed("patient appointment cancel (local)");
     const updated = updateLocalAppointment(id, { status: "cancelled" });
     return updated
       ? { ok: true }
@@ -425,6 +469,7 @@ export async function cancelPatientAppointment(
 
   const supabase = createClientOrNull();
   if (!supabase) {
+    ensureDemoAllowed("patient appointment cancel (local)");
     const updated = updateLocalAppointment(id, { status: "cancelled" });
     return updated
       ? { ok: true }
@@ -496,6 +541,7 @@ export async function reschedulePatientAppointment(
   timeSlot: string
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseBackendEnabled() || !hasSupabaseConfig()) {
+    ensureDemoAllowed("patient appointment reschedule (local)");
     const updated = updateLocalAppointment(id, { date, timeSlot });
     return updated
       ? { ok: true }
@@ -504,6 +550,7 @@ export async function reschedulePatientAppointment(
 
   const supabase = createClientOrNull();
   if (!supabase) {
+    ensureDemoAllowed("patient appointment reschedule (local)");
     const updated = updateLocalAppointment(id, { date, timeSlot });
     return updated
       ? { ok: true }
@@ -607,9 +654,15 @@ export async function getPatientReports(): Promise<PatientReport[]> {
 }
 
 export async function getPatientDocuments(): Promise<PatientDocument[]> {
-  if (!isSupabaseBackendEnabled()) return [];
+  if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("patient documents listing");
+    return [];
+  }
   const supabase = createClientOrNull();
-  if (!supabase) return [];
+  if (!supabase) {
+    ensureDemoAllowed("patient documents listing");
+    return [];
+  }
 
   const {
     data: { user },

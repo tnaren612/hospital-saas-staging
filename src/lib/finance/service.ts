@@ -4,6 +4,7 @@
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
+import { ensureDemoAllowed } from "@/lib/supabase/demo-gate";
 import { demoFinance } from "@/lib/finance/demo-store";
 import type { FinanceExpense, FinanceSummary } from "@/lib/finance/types";
 import type { ExpenseCreateInput } from "@/lib/finance/validation";
@@ -128,7 +129,10 @@ export async function deleteExpense(id: string): Promise<boolean> {
 }
 
 async function appointmentRevenue(from: string, to: string): Promise<number> {
-  if (!canUseDb()) return 0;
+  if (!canUseDb()) {
+    ensureDemoAllowed("finance appointment revenue");
+    return 0;
+  }
   try {
     const { data, error } = await client()
       .from("appointments")
@@ -143,6 +147,7 @@ async function appointmentRevenue(from: string, to: string): Promise<number> {
       return s + (Number.isFinite(fee) && fee > 0 ? fee : 500);
     }, 0);
   } catch {
+    ensureDemoAllowed("finance appointment revenue");
     return 0;
   }
 }
@@ -152,6 +157,7 @@ async function billingRevenue(): Promise<{ today: number; month: number }> {
     const { getRevenue } = await import("@/lib/payments/payment-service");
     return await getRevenue();
   } catch {
+    ensureDemoAllowed("finance billing revenue");
     return { today: 0, month: 0 };
   }
 }

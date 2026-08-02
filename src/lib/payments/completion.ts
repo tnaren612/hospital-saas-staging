@@ -12,7 +12,10 @@ import { writePaymentAudit } from "@/lib/payments/audit";
 import { buildInvoiceHtml } from "@/lib/payments/invoice";
 import { paymentLog } from "@/lib/payments/logger";
 import { buildInvoicePdf } from "@/lib/payments/pdf";
-import { uploadInvoicePdf } from "@/lib/payments/storage";
+import {
+  uploadInvoicePdf,
+  resolveInvoicePdfUrl,
+} from "@/lib/payments/storage";
 import {
   isPaymentSuccessful,
   type InvoiceRecord,
@@ -250,7 +253,14 @@ async function emailInvoice(input: {
   };
 
   // Email via direct helper (preserves existing audit shape)
-  const result = await sendPaymentConfirmationEmail(emailPayload);
+  // The invoices bucket is private (046) — the email gets a signed PDF link.
+  const signedPdfUrl = input.pdfUrl
+    ? await resolveInvoicePdfUrl(input.pdfUrl)
+    : "";
+  const result = await sendPaymentConfirmationEmail({
+    ...emailPayload,
+    pdfUrl: signedPdfUrl || input.pdfUrl,
+  });
 
   // Optional SMS receipt via unified notification service
   const phone =

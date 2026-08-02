@@ -46,5 +46,10 @@ export function toPublicHospitalConfig(
       prescription_note: "",
       report_note: "",
     },
+    data_management: {
+      ...config.data_management,
+      modules: {},
+      backup: { enabled: false, scheduleCron: null, keepCount: 0 },
+    },
   };
 }

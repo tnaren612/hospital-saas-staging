@@ -7,6 +7,7 @@ import type { Appointment, TimePeriod } from "@/types";
 import type { AppointmentFormValues } from "@/lib/validation";
 import { createClientOrNull } from "@/lib/supabase/client";
 import { isSupabaseBackendEnabled } from "@/lib/supabase/env";
+import { ensureDemoAllowed } from "@/lib/supabase/demo-gate";
 import type { DbAppointment } from "@/lib/supabase/types";
 import {
   addAppointment as addLocalAppointment,
@@ -79,35 +80,51 @@ export function isUsingSupabase(): boolean {
   return isSupabaseBackendEnabled();
 }
 
-/** Check if a slot is already booked. */
+/** Check if a slot is already booked. Uses the public booked_slots RPC
+ *  (row-level access to appointments is staff/patient-only since 046). */
 export async function checkSlotBooked(
   date: string,
   timeSlot: string,
   doctorId = "dr-varaprasad"
 ): Promise<boolean> {
   if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("appointment slot check (local)");
     return isLocalSlotBooked(date, timeSlot);
   }
 
   const supabase = createClientOrNull();
-  if (!supabase) return isLocalSlotBooked(date, timeSlot);
-
-  const { data, error } = await supabase
-    .from("appointments")
-    .select("id")
-    .eq("doctor_id", doctorId)
-    .eq("date", date)
-    .eq("time_slot", timeSlot)
-    .neq("status", "cancelled")
-    .maybeSingle();
-
-  if (error) {
-    // Fallback if table missing / network error
-    console.warn("[appointments] slot check failed, using local:", error.message);
+  if (!supabase) {
+    ensureDemoAllowed("appointment slot check (local)");
     return isLocalSlotBooked(date, timeSlot);
   }
 
-  return Boolean(data);
+  const { data, error } = await supabase.rpc("booked_slots", {
+    p_doctor_id: doctorId,
+    p_date: date,
+  });
+
+  if (error) {
+    // Fallback only when the RPC is missing (schema not migrated yet)
+    if (/function|does not exist|rpc/i.test(error.message)) {
+      console.warn(
+        "[appointments] booked_slots RPC missing, falling back to direct read:",
+        error.message
+      );
+      const { data: direct } = await supabase
+        .from("appointments")
+        .select("time_slot")
+        .eq("doctor_id", doctorId)
+        .eq("date", date)
+        .not("status", "in", '("cancelled","no_show")')
+        .maybeSingle();
+      return Boolean(direct);
+    }
+    ensureDemoAllowed("appointment slot check (Supabase)");
+    console.warn("[appointments] slot check failed:", error.message);
+    return isLocalSlotBooked(date, timeSlot);
+  }
+
+  return (data || []).includes(timeSlot);
 }
 
 /** Load booked slot keys for a date: "YYYY-MM-DD|10:00 AM" — via cached slots API */
@@ -116,6 +133,7 @@ export async function getBookedSlotKeysForDate(
   doctorId = "dr-varaprasad"
 ): Promise<string[]> {
   if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("appointment booked slots (local)");
     const { getBookedSlots } = await import("@/lib/storage");
     return getBookedSlots().filter((k) => k.startsWith(`${date}|`));
   }
@@ -135,25 +153,23 @@ export async function getBookedSlotKeysForDate(
 
   const supabase = createClientOrNull();
   if (!supabase) {
+    ensureDemoAllowed("appointment booked slots (local)");
     const { getBookedSlots } = await import("@/lib/storage");
     return getBookedSlots().filter((k) => k.startsWith(`${date}|`));
   }
 
-  const { data, error } = await supabase
-    .from("appointments")
-    .select("date, time_slot")
-    .eq("doctor_id", doctorId)
-    .eq("date", date)
-    .neq("status", "cancelled");
+  const { data, error } = await supabase.rpc("booked_slots", {
+    p_doctor_id: doctorId,
+    p_date: date,
+  });
 
   if (error || !data) {
+    ensureDemoAllowed("appointment booked slots (Supabase)");
     console.warn("[appointments] fetch slots failed:", error?.message);
     return [];
   }
 
-  return (data as { date: string; time_slot: string }[]).map(
-    (r) => `${r.date}|${r.time_slot}`
-  );
+  return (data as string[]).map((t) => `${date}|${t}`);
 }
 
 /** Create appointment in Supabase or localStorage. */
@@ -169,12 +185,14 @@ export async function createAppointment(
   };
 
   if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("appointment creation (local)");
     const appointment = addLocalAppointment(buildLocalAppointment(cleaned));
     return { appointment, source: "local" };
   }
 
   const supabase = createClientOrNull();
   if (!supabase) {
+    ensureDemoAllowed("appointment creation (local)");
     const appointment = addLocalAppointment(buildLocalAppointment(cleaned));
     return { appointment, source: "local" };
   }
@@ -270,6 +288,7 @@ export async function listAppointments(options?: {
   phone?: string;
 }): Promise<Appointment[]> {
   if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("appointment listing (local)");
     const all = getLocalAppointments();
     if (options?.phone) {
       return all.filter((a) => a.phone === options.phone);
@@ -278,7 +297,10 @@ export async function listAppointments(options?: {
   }
 
   const supabase = createClientOrNull();
-  if (!supabase) return getLocalAppointments();
+  if (!supabase) {
+    ensureDemoAllowed("appointment listing (local)");
+    return getLocalAppointments();
+  }
 
   let query = supabase
     .from("appointments")
@@ -291,6 +313,7 @@ export async function listAppointments(options?: {
 
   const { data, error } = await query;
   if (error) {
+    ensureDemoAllowed("appointment listing (Supabase)");
     console.warn("[appointments] list failed:", error.message);
     return getLocalAppointments();
   }
@@ -304,11 +327,15 @@ export async function setAppointmentStatus(
   status: Appointment["status"]
 ): Promise<Appointment | null> {
   if (!isSupabaseBackendEnabled()) {
+    ensureDemoAllowed("appointment status update (local)");
     return updateLocalAppointment(id, { status });
   }
 
   const supabase = createClientOrNull();
-  if (!supabase) return updateLocalAppointment(id, { status });
+  if (!supabase) {
+    ensureDemoAllowed("appointment status update (local)");
+    return updateLocalAppointment(id, { status });
+  }
 
   const { data, error } = await supabase
     .from("appointments")

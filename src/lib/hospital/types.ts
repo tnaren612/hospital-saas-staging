@@ -203,6 +203,8 @@ export type HospitalConfig = {
   hospital_id: string | null;
   slug: string;
   hospital_type: HospitalType;
+  /** Data Management & Import/Export engine configuration. */
+  data_management: import("@/lib/datahub/types").DataManagementConfig;
   branding: HospitalBranding;
   contact: HospitalContact;
   localization: HospitalLocalization;
@@ -224,6 +226,9 @@ export type HospitalConfig = {
 export type HospitalSettingsPatch = {
   name?: string;
   hospital_type?: HospitalType;
+  data_management?: Partial<
+    import("@/lib/datahub/types").DataManagementConfig
+  >;
   branding?: Partial<HospitalBranding>;
   contact?: Partial<HospitalContact>;
   localization?: Partial<HospitalLocalization>;

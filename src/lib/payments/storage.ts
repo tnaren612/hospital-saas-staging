@@ -55,3 +55,63 @@ export async function uploadInvoicePdf(input: {
 
   return { ok: true, url: publicUrl, path };
 }
+
+/**
+ * Extract the storage object path from a stored public/signed URL
+ * (pure — unit tested). Returns null when the URL is not an object in the
+ * invoices bucket (e.g. an external or inline URL).
+ */
+export function extractInvoicePdfPath(
+  publicUrl: string,
+  bucket: string = BUCKET
+): string | null {
+  try {
+    const u = new URL(publicUrl);
+    const publicMatch = u.pathname.match(/\/object\/public\/([^/]+)\/(.+)$/);
+    if (publicMatch && publicMatch[1] === bucket) {
+      return decodeURIComponent(publicMatch[2]);
+    }
+    const signMatch = u.pathname.match(/\/object\/sign\/([^/]+)\/(.+)$/);
+    if (signMatch && signMatch[1] === bucket) {
+      return decodeURIComponent(signMatch[2]);
+    }
+  } catch {
+    /* not a parseable URL */
+  }
+  return null;
+}
+
+/**
+ * Resolve a stored invoice PDF URL to a short-lived signed URL (service role).
+ * The invoices bucket is private since migration 046 — public URLs no longer
+ * resolve. Returns the original URL when it is not a bucket object, and null
+ * when signing fails (caller decides fallback).
+ */
+export async function resolveInvoicePdfUrl(
+  pdfUrl: string,
+  ttlSeconds = 3600
+): Promise<string | null> {
+  const sb = serviceClient();
+  if (!sb) return null;
+  const path = extractInvoicePdfPath(pdfUrl);
+  if (!path) return pdfUrl;
+  try {
+    const { data, error } = await sb.storage
+      .from(BUCKET)
+      .createSignedUrl(path, ttlSeconds);
+    if (error || !data?.signedUrl) {
+      paymentLog.error("invoice.pdf_sign_failed", {
+        path,
+        error: error?.message || "no signed url",
+      });
+      return null;
+    }
+    return data.signedUrl;
+  } catch (error) {
+    paymentLog.error("invoice.pdf_sign_failed", {
+      path,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}

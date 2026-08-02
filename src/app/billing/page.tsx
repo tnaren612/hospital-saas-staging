@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { HospitalBillingManager } from "@/components/admin/hms/hospital-billing-manager";
 import { Button } from "@/components/ui/button";
+import { PortalLogout } from "@/components/auth/portal-logout";
 import { createMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createMetadata({
@@ -14,6 +15,7 @@ export const metadata: Metadata = createMetadata({
 export default function BillingPortalPage() {
   return (
     <div className="container mx-auto max-w-6xl space-y-4 px-4 py-8">
+      <PortalLogout />
       <div className="flex flex-wrap gap-2">
         <Link href="/admin/billing">
           <Button size="sm" variant="outline">
