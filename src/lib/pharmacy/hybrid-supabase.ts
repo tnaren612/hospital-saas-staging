@@ -106,6 +106,15 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
       if (error) throw new Error(applyErrorMessage(error));
     },
 
+    async incrementMedicineStock(id, qty, hospitalId) {
+      const { error } = await sb.rpc("pharmacy_increment_stock", {
+        p_id: id,
+        p_hospital_id: hospitalId,
+        p_qty: qty,
+      });
+      if (error) throw new Error(applyErrorMessage(error));
+    },
+
     async insertStockMovement(row) {
       await insertStrippingUnknownColumns(sb, "pharmacy_stock_movements", row);
     },
@@ -123,6 +132,23 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
         sale?: Record<string, unknown>;
       };
       const row = payload.sale || (data as Record<string, unknown>);
+      if (!row || !row.id) throw new Error("Apply returned no row");
+      return { row, created: Boolean(payload.created) };
+    },
+
+    async applyReturnReplica(input) {
+      const { data, error } = await sb.rpc("pharmacy_apply_return", {
+        p_hospital_id: input.hospitalId,
+        p_return_number: input.returnNumber,
+        p_return: input.returnRow,
+        p_lines: input.lines,
+      });
+      if (error) throw new Error(applyErrorMessage(error));
+      const payload = (data || {}) as {
+        created?: boolean;
+        return?: Record<string, unknown>;
+      };
+      const row = payload.return || (data as Record<string, unknown>);
       if (!row || !row.id) throw new Error("Apply returned no row");
       return { row, created: Boolean(payload.created) };
     },

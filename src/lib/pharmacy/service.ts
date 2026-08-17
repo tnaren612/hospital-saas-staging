@@ -7,7 +7,7 @@
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import { demoPharmacy } from "./demo-store";
-import { applyCloudSale } from "./hybrid-apply";
+import { applyCloudReturn, applyCloudSale } from "./hybrid-apply";
 import { createSupabaseHybridStore } from "./hybrid-supabase";
 import type {
   PharmacyBranch,
@@ -349,30 +349,15 @@ export async function createReturn(
       hospital_id: opts?.hospitalId || "demo",
     });
   }
-  try {
-    const sb = client();
-    const { items, ...rest } = input;
-    const { data, error } = await sb
-      .from("pharmacy_returns")
-      .insert(stampHospital(rest, opts.hospitalId))
-      .select()
-      .single();
-    if (error) throw error;
-    if (items && items.length > 0) {
-      await sb.from("pharmacy_return_items").insert(
-        items.map((item) => ({
-          ...item,
-          return_id: data.id,
-        }))
-      );
-    }
-    return { ...(data as PharmacyReturn), items };
-  } catch {
-    return demoPharmacy.createReturn({
-      ...input,
-      hospital_id: opts?.hospitalId || "demo",
-    });
-  }
+  const applied = await applyCloudReturn(
+    createSupabaseHybridStore(client()),
+    input as unknown as Record<string, unknown>,
+    opts.hospitalId
+  );
+  return {
+    ...(applied.row as PharmacyReturn),
+    items: input.items,
+  };
 }
 
 // ============================================================================

@@ -124,6 +124,17 @@ export type HybridCloudStore = {
     saleRow: Record<string, unknown>;
     lines: Array<{ medicine_id: string; qty: number; name: string }>;
   }): Promise<{ row: Record<string, unknown>; created: boolean }>;
+  incrementMedicineStock(
+    id: string,
+    qty: number,
+    hospitalId: string
+  ): Promise<void>;
+  applyReturnReplica(input: {
+    hospitalId: string;
+    returnNumber: string;
+    returnRow: Record<string, unknown>;
+    lines: Array<{ medicine_id: string; qty: number; name: string }>;
+  }): Promise<{ row: Record<string, unknown>; created: boolean }>;
   findByName(
     entity: "customer" | "supplier" | "category",
     hospitalId: string,
@@ -366,6 +377,108 @@ export async function applyCloudCategory(
   return applyNamedEntity(store, "category", payload, hospitalId);
 }
 
+export function clientReturnNumber(payload: Record<string, unknown>): string | null {
+  const explicit = asTrimmedString(payload.return_number);
+  if (explicit) return explicit;
+  const saleNumber = asTrimmedString(payload.original_sale_number);
+  if (!saleNumber) return null;
+  return saleNumber.includes("RET-") ? saleNumber : `RET-${saleNumber}`;
+}
+
+export function returnLinesFromPayload(
+  payload: Record<string, unknown>
+): Array<{ medicine_id: string; qty: number; name: string }> {
+  const items = Array.isArray(payload.items)
+    ? (payload.items as Array<Record<string, unknown>>)
+    : [];
+  const lines: Array<{ medicine_id: string; qty: number; name: string }> = [];
+  for (const item of items) {
+    const medicineId = asTrimmedString(item.medicine_id);
+    const qty = Number(item.qty ?? item.quantity ?? 0);
+    if (!medicineId || qty <= 0) continue;
+    lines.push({
+      medicine_id: medicineId,
+      qty,
+      name: String(item.medicine_name || item.name || "item"),
+    });
+  }
+  return lines;
+}
+
+export function returnRowFromPayload(
+  payload: Record<string, unknown>,
+  hospitalId: string,
+  returnNumber: string
+): Record<string, unknown> {
+  return {
+    ...(isUuid(payload.id)
+      ? { id: String(payload.id) }
+      : isUuid(payload._clientId)
+        ? { id: String(payload._clientId) }
+        : {}),
+    hospital_id: hospitalId,
+    return_number: returnNumber,
+    original_sale_number: asTrimmedString(payload.original_sale_number),
+    original_sale_id: isUuid(payload.original_sale_id)
+      ? String(payload.original_sale_id)
+      : null,
+    patient_name: String(payload.patient_name || "Walk-in Customer").slice(0, 120),
+    patient_phone: String(payload.patient_phone || ""),
+    return_reason: String(payload.return_reason || "return"),
+    return_type:
+      payload.return_type === "exchange" || payload.return_type === "credit_note"
+        ? payload.return_type
+        : "refund",
+    subtotal: Number(payload.subtotal || 0),
+    refund_amount: Number(payload.refund_amount || payload.subtotal || 0),
+    refund_method: payload.refund_method ?? "cash",
+    refund_reference: payload.refund_reference ?? null,
+    status: String(payload.status || "completed"),
+    notes: payload.notes ?? null,
+  };
+}
+
+export async function applyCloudReturn(
+  store: HybridCloudStore,
+  payload: Record<string, unknown>,
+  hospitalId: string
+): Promise<ApplyResult> {
+  const returnNumber = clientReturnNumber(payload);
+  if (!returnNumber) throw new Error("return_number required");
+  const lines = returnLinesFromPayload(payload);
+  if (!lines.length) throw new Error("Invalid return payload");
+  const returnRow = returnRowFromPayload(payload, hospitalId, returnNumber);
+  try {
+    const applied = await store.applyReturnReplica({
+      hospitalId,
+      returnNumber,
+      returnRow,
+      lines,
+    });
+    return {
+      id: String(applied.row.id),
+      duplicate: !applied.created,
+      row: { ...applied.row, items: payload.items || [] },
+    };
+  } catch (err) {
+    const message = applyErrorMessage(err);
+    if (/duplicate|unique|already exists/i.test(message)) {
+      const applied = await store.applyReturnReplica({
+        hospitalId,
+        returnNumber,
+        returnRow,
+        lines,
+      });
+      return {
+        id: String(applied.row.id),
+        duplicate: true,
+        row: { ...applied.row, items: payload.items || [] },
+      };
+    }
+    throw err instanceof Error ? err : new Error(message);
+  }
+}
+
 export async function applyCloudPurchaseOrder(
   store: HybridCloudStore,
   payload: Record<string, unknown>,
@@ -404,13 +517,16 @@ export class MemoryHybridCloudStore implements HybridCloudStore {
   sales: Record<string, unknown>[] = [];
   medicines: Record<string, unknown>[] = [];
   movements: Record<string, unknown>[] = [];
+  returns: Record<string, unknown>[] = [];
   customers: Record<string, unknown>[] = [];
   suppliers: Record<string, unknown>[] = [];
   categories: Record<string, unknown>[] = [];
   purchaseOrders: Record<string, unknown>[] = [];
   /** Test hook: throw once from decrement after the sale row exists. */
   failNextDecrement: Error | null = null;
-  /** Test hook: leave a committed sale if decrement fails (no rollback). */
+  /** Test hook: throw once from increment after the return row exists. */
+  failNextIncrement: Error | null = null;
+  /** Test hook: leave a committed sale/return if stock write fails (no rollback). */
   simulateCommittedPartial = false;
 
   private nextId(prefix: string): string {
@@ -495,6 +611,110 @@ export class MemoryHybridCloudStore implements HybridCloudStore {
 
   async insertStockMovement(row: Record<string, unknown>) {
     this.movements.push({ ...row, id: this.nextId("mv") });
+  }
+
+  async incrementMedicineStock(id: string, qty: number, hospitalId: string) {
+    if (this.failNextIncrement) {
+      const err = this.failNextIncrement;
+      this.failNextIncrement = null;
+      throw err;
+    }
+    const m = this.medicines.find(
+      (row) =>
+        String(row.id) === id && String(row.hospital_id || "") === hospitalId
+    );
+    if (!m) throw new Error("Medicine not found");
+    m.stock_qty = Number(m.stock_qty ?? 0) + qty;
+  }
+
+  private findReturnByNumber(hospitalId: string, returnNumber: string) {
+    return (
+      this.returns.find(
+        (r) =>
+          String(r.return_number) === returnNumber &&
+          String(r.hospital_id || "") === hospitalId
+      ) || null
+    );
+  }
+
+  private insertReturn(row: Record<string, unknown>) {
+    if (
+      this.returns.some(
+        (r) =>
+          String(r.return_number) === String(row.return_number) &&
+          String(r.hospital_id) === String(row.hospital_id)
+      )
+    ) {
+      throw new Error("duplicate return_number");
+    }
+    const inserted = { ...row, id: row.id || this.nextId("ret") };
+    this.returns.push(inserted);
+    return inserted;
+  }
+
+  async applyReturnReplica(input: {
+    hospitalId: string;
+    returnNumber: string;
+    returnRow: Record<string, unknown>;
+    lines: Array<{ medicine_id: string; qty: number; name: string }>;
+  }): Promise<{ row: Record<string, unknown>; created: boolean }> {
+    const existing = this.findReturnByNumber(input.hospitalId, input.returnNumber);
+    const stockSnap = this.medicines.map((m) => ({
+      id: m.id,
+      stock_qty: m.stock_qty,
+    }));
+    const moveSnap = this.movements.length;
+    let created = false;
+    let ret = existing;
+    try {
+      if (!ret) {
+        try {
+          ret = this.insertReturn(input.returnRow);
+          created = true;
+        } catch (err) {
+          const message = applyErrorMessage(err);
+          if (/duplicate|unique|already exists/i.test(message)) {
+            ret = this.findReturnByNumber(input.hospitalId, input.returnNumber);
+            if (!ret) throw err;
+            created = false;
+          } else {
+            throw err;
+          }
+        }
+      }
+      for (const line of input.lines) {
+        const already = this.movements.some(
+          (m) =>
+            String(m.reference) === input.returnNumber &&
+            String(m.medicine_id) === line.medicine_id &&
+            String(m.movement_type || "in") === "in"
+        );
+        if (already) continue;
+        await this.incrementMedicineStock(
+          line.medicine_id,
+          line.qty,
+          input.hospitalId
+        );
+        await this.insertStockMovement({
+          hospital_id: input.hospitalId,
+          medicine_id: line.medicine_id,
+          movement_type: "in",
+          quantity: line.qty,
+          reference: input.returnNumber,
+        });
+      }
+      return { row: ret, created };
+    } catch (err) {
+      if (created && !this.simulateCommittedPartial) {
+        this.returns = this.returns.filter((r) => r !== ret);
+        this.movements = this.movements.slice(0, moveSnap);
+        for (const snap of stockSnap) {
+          const m = this.medicines.find((row) => row.id === snap.id);
+          if (m) m.stock_qty = snap.stock_qty;
+        }
+      }
+      throw err;
+    }
   }
 
   async applySaleReplica(input: {

@@ -3,7 +3,6 @@ import { z } from "zod";
 import { requireHmsAdmin, requireSameOriginForMutation } from "@/lib/hms/server";
 import { rolesForPhase2Module } from "@/lib/auth/roles";
 import {
-  getPharmacySqlite,
   sqliteSaleSchema,
   medicineInputSchema,
   batchInputSchema,
@@ -16,7 +15,8 @@ import {
   type SqliteSaleInput,
 } from "@/lib/pharmacy/sqlite-store";
 import { POS_PAYMENT_METHODS } from "@/lib/pharmacy/validation";
-import { pharmacySqlitePath } from "@/lib/pharmacy/sqlite-path";
+import { getSharedPharmacySqlite } from "@/lib/pharmacy/sqlite-path";
+import { getTenantContext } from "@/lib/hospital/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -51,8 +51,9 @@ const ACTIONS = [
   "held_bill",
 ] as const;
 
-function sqlitePath(): string | undefined {
-  return pharmacySqlitePath();
+async function openPharmacyStore() {
+  const tenant = await getTenantContext();
+  return getSharedPharmacySqlite(tenant.hospitalId);
 }
 
 export async function GET(request: Request) {
@@ -75,7 +76,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const store = getPharmacySqlite(sqlitePath());
+    const store = await openPharmacyStore();
     let data: unknown;
     switch (kind) {
       case "medicines":
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
 
   try {
-    const store = getPharmacySqlite(sqlitePath());
+    const store = await openPharmacyStore();
     let data: unknown;
 
     switch (action) {

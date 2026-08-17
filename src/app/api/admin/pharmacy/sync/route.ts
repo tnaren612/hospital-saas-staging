@@ -109,7 +109,7 @@ export async function GET(request: Request) {
   }
 
   const local = isLocalMode();
-  const store = local ? getSharedPharmacySqlite() : null;
+  const store = local ? getSharedPharmacySqlite(tenant.hospitalId) : null;
 
   if (local && store) {
     const LOCAL_PULL_ENTITIES = new Set([
@@ -397,7 +397,7 @@ export async function POST(request: Request) {
   const results = [];
 
   const local = isLocalMode();
-  const store = local ? getSharedPharmacySqlite() : null;
+  const store = local ? getSharedPharmacySqlite(tenant.hospitalId) : null;
 
   if (local && store) {
     for (const op of parsed.data.ops) {

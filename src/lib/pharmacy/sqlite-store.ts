@@ -534,10 +534,17 @@ export function paymentLinesFromNotes(notes?: string | null): PaymentLineInput[]
   }
 }
 
-/** FEFO: earliest-expiry batch with stock wins when no batch is specified. */
-function fefoBatches(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+/** FEFO: earliest-expiry in-stock, unexpired batch when no batch is specified. */
+export function fefoBatches(
+  rows: Array<Record<string, unknown>>,
+  today = todayIso()
+): Array<Record<string, unknown>> {
   return rows
     .filter((r) => Number(r.qty) > 0)
+    .filter((r) => {
+      const expiry = String(r.expiry_date ?? "").trim();
+      return !expiry || expiry >= today;
+    })
     .sort((a, b) => {
       const ea = String(a.expiry_date ?? "9999-12-31");
       const eb = String(b.expiry_date ?? "9999-12-31");
