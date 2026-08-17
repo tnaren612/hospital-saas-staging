@@ -23,6 +23,8 @@ export const POS_PAYMENT_METHODS = [
 export const POS_PAYMENT_STATUS = ["pending", "paid", "refunded", "cancelled"] as const;
 
 export const posSaleSchema = z.object({
+  id: z.string().uuid().optional(),
+  sale_number: z.string().min(1).max(80).optional(),
   patient_name: z.string().min(1).max(120),
   patient_phone: z.string().max(15).optional(),
   patient_age: z.number().int().positive().max(150).optional().nullable(),

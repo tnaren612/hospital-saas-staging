@@ -6,8 +6,9 @@
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
-import { roundMoney } from "./tax";
 import { demoPharmacy } from "./demo-store";
+import { applyCloudSale } from "./hybrid-apply";
+import { createSupabaseHybridStore } from "./hybrid-supabase";
 import type {
   PharmacyBranch,
   PharmacyShift,
@@ -609,6 +610,8 @@ export type PosSaleLineItem = {
 };
 
 export type PosSaleInput = {
+  id?: string;
+  sale_number?: string;
   patient_name: string;
   patient_phone?: string;
   patient_age?: number | null;
@@ -650,123 +653,26 @@ export async function createPosSale(
     return demoPharmacy.createPosSale(input);
   }
   const sb = client();
-  // 1) Stock validation
-  for (const item of input.items) {
-    if (!item.medicine_id) continue;
-    let stockQuery = sb
-      .from("medicines")
-      .select("stock_qty")
-      .eq("id", item.medicine_id);
-    stockQuery = withHospitalEq(stockQuery, opts.hospitalId);
-    const { data: stock, error: stockError } = await stockQuery.maybeSingle();
-    if (stockError) throw stockError;
-    if (!stock || Number(stock.stock_qty) < item.qty) {
-      throw new Error(
-        `Insufficient stock for ${item.name}. Available: ${Number(stock?.stock_qty || 0)}`
-      );
-    }
-  }
-
-  const saleRow = stampHospital(
-    {
-      sale_number: `PH-${Date.now().toString().slice(-8)}`,
-      patient_name: input.patient_name,
-      patient_phone: input.patient_phone || "",
-      patient_age: input.patient_age ?? null,
-      sale_type: input.sale_type,
-      prescription_id: null,
-      branch_id: input.branch_id ?? null,
-      shift_id: input.shift_id ?? null,
-      cashier_name: input.cashier_name ?? "",
-      customer_phone: input.patient_phone ?? "",
-      prescription_number: input.prescription_number ?? null,
-      doctor_name: input.doctor_name ?? null,
-      doctor_reg_no: input.doctor_reg_no ?? null,
-      subtotal: input.subtotal,
-      discount: input.discount,
-      tax: input.tax,
-      grand_total: input.grand_total,
-      amount_paid: input.amount_paid,
-      amount_returned: input.amount_returned,
-      payment_method: input.payment_method,
-      payment_status: input.payment_status || "paid",
-      payment_reference: input.payment_reference ?? null,
-      notes: input.notes ?? null,
-      sold_by: input.cashier_name ?? "",
-      line_items: input.items.map((i) => ({
-        medicine_id: i.medicine_id ?? null,
-        name: i.name,
-        quantity: i.qty,
-        qty: i.qty,
-        price: i.price,
-        selling_price: i.price,
-        gst_percent: i.gst_percent ?? null,
-        batch_number: i.batch_number ?? null,
-        expiry_date: i.expiry_date ?? null,
-        discount: i.discount ?? 0,
-        total: roundMoney(i.price * i.qty),
-      })),
-    },
+  const applied = await applyCloudSale(
+    createSupabaseHybridStore(sb),
+    input as unknown as Record<string, unknown>,
     opts.hospitalId
   );
-
-  let { data, error } = await sb.from("pharmacy_sales").insert(saleRow).select().single();
-  // Older DBs without patient_age column — retry without it
-  if (error && /patient_age/i.test(error.message)) {
-    const { patient_age: _age, ...withoutAge } = saleRow as Record<string, unknown> & {
-      patient_age?: unknown;
-    };
-    void _age;
-    const retry = await sb.from("pharmacy_sales").insert(withoutAge).select().single();
-    data = retry.data;
-    error = retry.error;
+  if (!applied.duplicate) {
+    await logPharmacyAction(
+      "sale_create",
+      "pharmacy_sale",
+      applied.id,
+      {
+        sale_number: applied.row.sale_number,
+        grand_total: input.grand_total,
+        payment_method: input.payment_method,
+        items: input.items.length,
+      },
+      opts
+    );
   }
-  if (error) throw error;
-
-  // 2) Decrement stock + record movements
-  for (const item of input.items) {
-    if (!item.medicine_id) continue;
-    let mq = sb.from("medicines").select("stock_qty").eq("id", item.medicine_id);
-    mq = withHospitalEq(mq, opts.hospitalId);
-    const { data: m } = await mq.maybeSingle();
-    if (m) {
-      let uq = sb
-        .from("medicines")
-        .update({ stock_qty: Math.max(0, Number(m.stock_qty) - item.qty) })
-        .eq("id", item.medicine_id);
-      uq = withHospitalEq(uq, opts.hospitalId);
-      const { error: updateError } = await uq;
-      if (updateError) throw updateError;
-      await sb
-        .from("pharmacy_stock_movements")
-        .insert(
-          stampHospital(
-            {
-              medicine_id: item.medicine_id,
-              movement_type: "out",
-              quantity: item.qty,
-              reference: (data as { sale_number?: string }).sale_number || "",
-            },
-            opts.hospitalId
-          )
-        );
-    }
-  }
-
-  await logPharmacyAction(
-    "sale_create",
-    "pharmacy_sale",
-    (data as { id?: string }).id ?? null,
-    {
-      sale_number: (data as { sale_number?: string }).sale_number,
-      grand_total: input.grand_total,
-      payment_method: input.payment_method,
-      items: input.items.length,
-    },
-    opts
-  );
-
-  return data as Record<string, unknown>;
+  return applied.row;
 }
 
 /** Fetch a single sale by its sale_number (for reprint / lookup). */

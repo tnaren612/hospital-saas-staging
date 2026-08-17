@@ -1,0 +1,193 @@
+/**
+ * Supabase adapter for M7 hybrid apply. Service-role client only.
+ */
+
+import type { HybridCloudStore } from "./hybrid-apply";
+
+// Service-role client is untyped (custom Database maps). Keep the adapter loose.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Sb = { from: (table: string) => any };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withHospital(query: any, hospitalId: string) {
+  return query.eq("hospital_id", hospitalId);
+}
+
+export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
+  return {
+    async findSaleByNumber(hospitalId, saleNumber) {
+      const { data, error } = await withHospital(
+        sb.from("pharmacy_sales").select("*").eq("sale_number", saleNumber),
+        hospitalId
+      ).maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async insertSale(row) {
+      let { data, error } = await sb.from("pharmacy_sales").insert(row).select().single();
+      if (error && /patient_age/i.test(error.message)) {
+        const { patient_age: _age, ...withoutAge } = row;
+        void _age;
+        const retry = await sb.from("pharmacy_sales").insert(withoutAge).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      return data as Record<string, unknown>;
+    },
+
+    async findMedicineById(id) {
+      const { data, error } = await sb.from("medicines").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async findMedicineBySku(hospitalId, sku) {
+      const { data, error } = await withHospital(
+        sb.from("medicines").select("*").eq("sku", sku),
+        hospitalId
+      ).maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async findMedicineByBarcode(hospitalId, barcode) {
+      const { data, error } = await withHospital(
+        sb.from("medicines").select("*").eq("barcode", barcode),
+        hospitalId
+      ).maybeSingle();
+      if (error) {
+        if (/barcode/i.test(error.message)) return null;
+        throw error;
+      }
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async insertMedicine(row) {
+      let { data, error } = await sb.from("medicines").insert(row).select().single();
+      if (error && /barcode/i.test(error.message)) {
+        const { barcode: _bc, ...withoutBarcode } = row;
+        void _bc;
+        const retry = await sb.from("medicines").insert(withoutBarcode).select().single();
+        data = retry.data;
+        error = retry.error;
+      }
+      if (error) throw error;
+      return data as Record<string, unknown>;
+    },
+
+    async getMedicineStock(id) {
+      const { data, error } = await sb
+        .from("medicines")
+        .select("stock_qty")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      return Number((data as { stock_qty?: number }).stock_qty ?? 0);
+    },
+
+    async decrementMedicineStock(id, qty) {
+      const { data, error } = await sb
+        .from("medicines")
+        .select("stock_qty")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      const current = Number((data as { stock_qty?: number } | null)?.stock_qty ?? 0);
+      if (!data || current < qty) {
+        throw new Error(`Insufficient stock. Available: ${data ? current : 0}`);
+      }
+      const { error: updateError } = await sb
+        .from("medicines")
+        .update({ stock_qty: current - qty })
+        .eq("id", id);
+      if (updateError) throw updateError;
+    },
+
+    async insertStockMovement(row) {
+      const { error } = await sb.from("pharmacy_stock_movements").insert(row);
+      if (error) throw error;
+    },
+
+    async findByName(entity, hospitalId, name) {
+      const table = tableFor(entity);
+      let q = sb.from(table).select("*").ilike("name", name);
+      if (entity !== "category") q = withHospital(q, hospitalId);
+      const { data, error } = await q.maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async findById(entity, id) {
+      const { data, error } = await sb.from(tableFor(entity)).select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+
+    async insertRow(entity, row) {
+      const { data, error } = await sb.from(tableFor(entity)).insert(sanitizeRow(entity, row)).select().single();
+      if (error) throw error;
+      return data as Record<string, unknown>;
+    },
+
+    async findPurchaseOrderByNumber(hospitalId, poNumber) {
+      const { data, error } = await withHospital(
+        sb.from("pharmacy_purchase_orders").select("*").eq("po_number", poNumber),
+        hospitalId
+      ).maybeSingle();
+      if (error) throw error;
+      return (data as Record<string, unknown>) || null;
+    },
+  };
+}
+
+function tableFor(
+  entity: "customer" | "supplier" | "category" | "purchase_order"
+): string {
+  if (entity === "customer") return "pharmacy_customers";
+  if (entity === "supplier") return "pharmacy_suppliers";
+  if (entity === "category") return "pharmacy_categories";
+  return "pharmacy_purchase_orders";
+}
+
+function sanitizeRow(
+  entity: "customer" | "supplier" | "category" | "purchase_order",
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  if (entity === "category") {
+    return { id: row.id, name: row.name, description: row.description || "" };
+  }
+  if (entity === "supplier") {
+    return {
+      id: row.id,
+      hospital_id: row.hospital_id,
+      name: row.name,
+      phone: row.phone || "",
+      email: row.email || "",
+      address: row.address || "",
+      is_active: row.is_active !== false,
+    };
+  }
+  if (entity === "customer") {
+    return {
+      id: row.id,
+      hospital_id: row.hospital_id,
+      name: row.name,
+      phone: row.phone || "",
+      email: row.email || "",
+      address: row.address || "",
+    };
+  }
+  return {
+    id: row.id,
+    hospital_id: row.hospital_id,
+    po_number: row.po_number,
+    supplier_id: row.supplier_id ?? null,
+    status: row.status || "draft",
+    total_amount: row.total_amount || 0,
+    notes: row.notes || "",
+    line_items: row.line_items || [],
+  };
+}

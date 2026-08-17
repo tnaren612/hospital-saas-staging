@@ -21,6 +21,15 @@ import { posSaleSchema } from "@/lib/pharmacy/validation";
 import type { SyncEntity } from "@/lib/pharmacy/offline/types";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
 import {
+  applyCloudCategory,
+  applyCloudCustomer,
+  applyCloudMedicine,
+  applyCloudPurchaseOrder,
+  applyCloudSupplier,
+  classifyApplyFailure,
+} from "@/lib/pharmacy/hybrid-apply";
+import { createSupabaseHybridStore } from "@/lib/pharmacy/hybrid-supabase";
+import {
   getPharmacySqlite,
   medicineInputSchema,
   returnInputSchema,
@@ -162,24 +171,24 @@ export async function GET(request: Request) {
     let rows: Array<Record<string, unknown>> = [];
     switch (entity) {
       case "settings": {
-        const s = await getPharmacySettings(opts);
-        rows = [s as unknown as Record<string, unknown>];
+        const s = await pullOrEmpty(async () => [await getPharmacySettings(opts)]);
+        rows = s as Array<Record<string, unknown>>;
         break;
       }
       case "branch":
-        rows = await listBranches(opts);
+        rows = await pullOrEmpty(() => listBranches(opts));
         break;
       case "shift":
-        rows = await listShifts(opts);
+        rows = await pullOrEmpty(() => listShifts(opts));
         break;
       case "return":
-        rows = await listReturns(opts);
+        rows = await pullOrEmpty(() => listReturns(opts));
         break;
       case "held_bill":
-        rows = await listHeldBills(opts);
+        rows = await pullOrEmpty(() => listHeldBills(opts));
         break;
       case "sale":
-        rows = await listSales({ ...opts, sinceIso: since, limit });
+        rows = await pullOrEmpty(() => listSales({ ...opts, sinceIso: since, limit }));
         break;
     }
 
@@ -195,8 +204,24 @@ export async function GET(request: Request) {
         serverTime: new Date().toISOString(),
       },
     });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    if (/demo-fallback-disabled/i.test(message)) {
+      return NextResponse.json({
+        data: { entity, rows: [], serverTime: new Date().toISOString() },
+      });
+    }
     return NextResponse.json({ error: "Pull failed" }, { status: 500 });
+  }
+}
+
+async function pullOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/demo-fallback-disabled/i.test(message)) return [];
+    throw err;
   }
 }
 
@@ -316,6 +341,16 @@ function applyLocalOp(
     case "settings":
       store.saveSettings(op.payload as Record<string, unknown>);
       return { id: "settings" };
+    case "customer":
+    case "supplier":
+    case "category":
+    case "purchase_order": {
+      const localId =
+        (typeof op.payload.id === "string" && op.payload.id) ||
+        (typeof op.payload._clientId === "string" && op.payload._clientId) ||
+        op.id;
+      return { id: String(localId) };
+    }
     default:
       throw new Error(`no server apply for entity "${op.entity}" yet`);
   }
@@ -398,11 +433,13 @@ export async function POST(request: Request) {
   for (const op of parsed.data.ops) {
     try {
       const ledger = await ledgerLookup(sb, op.id, tenant.hospitalId);
-      if (ledger) {
+      // Only an applied ledger row is a replay hit. Failed/conflict must
+      // re-attempt so retries can succeed after medicine apply or recovery.
+      if (ledger?.status === "applied") {
         results.push({
           opId: op.id,
-          ok: ledger.status === "applied",
-          error: ledger.status === "applied" ? null : (ledger.error || "failed earlier"),
+          ok: true,
+          error: null,
           serverId: ledger.response?.id ? String(ledger.response.id) : null,
           updatedAt: null,
         });
@@ -415,7 +452,7 @@ export async function POST(request: Request) {
         error: string | null
       ) => {
         if (!sb) return;
-        await sb.from("pharmacy_sync_ledger").insert({
+        const row = {
           op_id: op.id,
           hospital_id: tenant.hospitalId,
           entity: op.entity,
@@ -423,15 +460,51 @@ export async function POST(request: Request) {
           status,
           response,
           error,
-        });
+        };
+        if (ledger) {
+          await sb
+            .from("pharmacy_sync_ledger")
+            .update({ status, response, error })
+            .eq("op_id", op.id);
+        } else {
+          await sb.from("pharmacy_sync_ledger").insert(row);
+        }
       };
 
       let applied: Record<string, unknown> | null = null;
+      const hospitalId = tenant.hospitalId;
+      const cloudStore =
+        sb && hospitalId ? createSupabaseHybridStore(sb) : null;
       switch (op.entity) {
         case "sale": {
           const sale = posSaleSchema.safeParse(op.payload);
           if (!sale.success) throw new Error("Invalid sale payload");
           applied = (await createPosSale(sale.data, opts)) as Record<string, unknown> | null;
+          break;
+        }
+        case "medicine": {
+          if (!cloudStore || !hospitalId) throw new Error("Cloud medicine apply requires a hospital");
+          applied = (await applyCloudMedicine(cloudStore, op.payload, hospitalId)).row;
+          break;
+        }
+        case "customer": {
+          if (!cloudStore || !hospitalId) throw new Error("Cloud customer apply requires a hospital");
+          applied = (await applyCloudCustomer(cloudStore, op.payload, hospitalId)).row;
+          break;
+        }
+        case "supplier": {
+          if (!cloudStore || !hospitalId) throw new Error("Cloud supplier apply requires a hospital");
+          applied = (await applyCloudSupplier(cloudStore, op.payload, hospitalId)).row;
+          break;
+        }
+        case "category": {
+          if (!cloudStore || !hospitalId) throw new Error("Cloud category apply requires a hospital");
+          applied = (await applyCloudCategory(cloudStore, op.payload, hospitalId)).row;
+          break;
+        }
+        case "purchase_order": {
+          if (!cloudStore || !hospitalId) throw new Error("Cloud purchase-order apply requires a hospital");
+          applied = (await applyCloudPurchaseOrder(cloudStore, op.payload, hospitalId)).row;
           break;
         }
         case "return":
@@ -465,8 +538,6 @@ export async function POST(request: Request) {
           );
           break;
         default:
-          // Entities without a server apply path yet are never dropped:
-          // the client keeps them queued as "blocked" until support lands.
           results.push({
             opId: op.id,
             ok: false,
@@ -486,17 +557,30 @@ export async function POST(request: Request) {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Apply failed";
-      const isConflict =
-        /insufficient stock|already exists|conflict/i.test(message);
-      await sb?.from("pharmacy_sync_ledger").insert({
-        op_id: op.id,
-        hospital_id: tenant.hospitalId,
-        entity: op.entity,
-        action: op.action,
-        status: isConflict ? "conflict" : "failed",
-        response: null,
-        error: message,
-      });
+      const isConflict = classifyApplyFailure(message) === "conflict";
+      if (sb) {
+        const ledger = await ledgerLookup(sb, op.id, tenant.hospitalId);
+        if (ledger) {
+          await sb
+            .from("pharmacy_sync_ledger")
+            .update({
+              status: isConflict ? "conflict" : "failed",
+              response: null,
+              error: message,
+            })
+            .eq("op_id", op.id);
+        } else {
+          await sb.from("pharmacy_sync_ledger").insert({
+            op_id: op.id,
+            hospital_id: tenant.hospitalId,
+            entity: op.entity,
+            action: op.action,
+            status: isConflict ? "conflict" : "failed",
+            response: null,
+            error: message,
+          });
+        }
+      }
       results.push({
         opId: op.id,
         ok: false,

@@ -25,6 +25,7 @@ import {
 } from "./types";
 import { type OfflineStorage, keyEntityParts } from "./storage";
 import { isRetryable, shouldRetryNow } from "./queue";
+import { CLOUD_APPLY_ENTITIES, LAST_SYNC_WATERMARK_KEY } from "../hybrid-apply";
 import {
   CLOUD_UNAVAILABLE_MSG,
   SESSION_EXPIRED_MSG,
@@ -116,9 +117,36 @@ export class SyncEngine {
   /** Returns the ops that are due to be pushed right now. */
   async pendingOps(): Promise<OfflineMutation[]> {
     const queue = await this.storage.listQueue();
-    return queue
-      .filter((o) => shouldRetryNow(o))
-      .slice(0, this.maxBatch);
+    const due: OfflineMutation[] = [];
+    for (const op of queue) {
+      if (
+        op.status === "blocked" &&
+        CLOUD_APPLY_ENTITIES.has(op.entity)
+      ) {
+        await this.storage.updateOp(op.id, {
+          status: "pending",
+          lastError: null,
+        });
+        due.push({ ...op, status: "pending", lastError: null });
+        continue;
+      }
+      if (shouldRetryNow(op)) due.push(op);
+    }
+    return due.slice(0, this.maxBatch);
+  }
+
+  /** Manual retry: failed / conflict / blocked → pending (attempts reset). */
+  async retryOp(id: string): Promise<OfflineMutation | null> {
+    const queue = await this.storage.listQueue();
+    const op = queue.find((o) => o.id === id);
+    if (!op) return null;
+    if (!["failed", "conflict", "blocked"].includes(op.status)) return op;
+    return this.storage.updateOp(id, {
+      status: "pending",
+      lastAttemptAt: null,
+      lastError: null,
+      attempts: 0,
+    });
   }
 
   private async markAttempt(op: OfflineMutation) {
@@ -384,10 +412,9 @@ export class SyncEngine {
         return result;
       }
 
-      await this.storage.setMeta(
-        "lastSyncAt",
-        new Date().toISOString()
-      );
+      const watermark = new Date().toISOString();
+      await this.storage.setMeta("lastSyncAt", watermark);
+      await this.storage.setMeta(LAST_SYNC_WATERMARK_KEY, watermark);
       await this.audit("sync.completed", "sale", null, {
         pushed: result.pushed,
         pulled: result.pulled,

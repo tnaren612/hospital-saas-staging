@@ -229,10 +229,14 @@ const rawDemoPharmacy = {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   createPosSale(input: any): any {
+    const existing = input.sale_number
+      ? demoPosSales.find((s) => s.sale_number === input.sale_number)
+      : null;
+    if (existing) return existing;
     const sale = {
       ...input,
-      id: `sale-${Date.now()}`,
-      sale_number: `PH-${Date.now().toString().slice(-8)}`,
+      id: input.id || `sale-${Date.now()}`,
+      sale_number: input.sale_number || `PH-${Date.now().toString().slice(-8)}`,
       patient_phone: input.patient_phone || "",
       payment_status: input.payment_status || "paid",
       line_items: (input.items || []).map((i: PosSaleItemLike) => ({

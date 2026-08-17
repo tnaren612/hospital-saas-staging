@@ -250,6 +250,7 @@ export function useOfflineSync(
 ): OfflineSyncHookState & {
   syncNow: () => Promise<SyncResult>;
   verify: () => Promise<IntegrityCheck>;
+  retryOp: (id: string) => Promise<void>;
 } {
   const storage = useOfflineStore();
   const online = useOnlineStatus();
@@ -307,6 +308,12 @@ export function useOfflineSync(
     }
   };
 
+  const retryOp = async (id: string): Promise<void> => {
+    const engine = getSyncEngine(opts);
+    await engine.retryOp(id);
+    setStats(await engine.stats());
+  };
+
   const verify = async (): Promise<IntegrityCheck> => {
     try {
       const engine = getSyncEngine(opts);
@@ -332,7 +339,7 @@ export function useOfflineSync(
     void syncNow();
   }, [online, opts?.autoSync]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { online, stats, syncing, lastResult, integrity, syncNow, verify };
+  return { online, stats, syncing, lastResult, integrity, syncNow, verify, retryOp };
 }
 
 /** Subscribe to a cached entity list (auto-refreshes on storage changes). */

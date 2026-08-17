@@ -132,7 +132,7 @@ export function OfflineSyncView() {
           <CardContent className="flex items-center gap-3 p-4">
             <RefreshCw className="h-8 w-8 text-blue-500" aria-hidden />
             <div>
-              <div className="text-sm text-muted-foreground">Last sync</div>
+              <div className="text-sm text-muted-foreground">Last sync watermark</div>
               <div className="font-semibold">
                 {sync.stats.lastSyncAt ? sync.stats.lastSyncAt.slice(0, 16).replace("T", " ") : "Never"}
               </div>
@@ -199,6 +199,20 @@ export function OfflineSyncView() {
                     <span className="mt-1 block break-words text-rose-600"> {op.lastError}</span>
                   )}
                 </div>
+                {["failed", "conflict", "blocked"].includes(op.status) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={async () => {
+                      await sync.retryOp(op.id);
+                      await refresh();
+                      toast.success("Queued for retry");
+                    }}
+                  >
+                    Retry
+                  </Button>
+                )}
               </div>
             ))}
             {queue.length === 0 && (
