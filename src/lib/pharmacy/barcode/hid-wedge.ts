@@ -62,9 +62,12 @@ export function isTerminatorKey(key: string, suffix: HidSuffix): boolean {
 export function isEditableTarget(target: unknown): boolean {
   if (!target || typeof target !== "object") return false;
   const el = target as { tagName?: unknown; isContentEditable?: unknown };
-  if (typeof el.isContentEditable === "boolean") return el.isContentEditable;
   const tag = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  // Real INPUT/TEXTAREA/SELECT nodes expose isContentEditable === false.
+  // Check the tag first or the global wedge will treat focused form
+  // fields as scanner input.
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return el.isContentEditable === true;
 }
 
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "AltGraph"]);

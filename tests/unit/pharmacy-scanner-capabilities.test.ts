@@ -106,6 +106,19 @@ test("capabilities: an ordinary paired phone is NOT labeled a compatible scanner
 test("capabilities: connect failures are classified without leaking raw browser text", () => {
   assert.equal(classifyBluetoothConnectError(Object.assign(new Error("x"), { name: "NotAllowedError" })), "canceled");
   assert.equal(classifyBluetoothConnectError(Object.assign(new Error("x"), { name: "AbortError" })), "canceled");
+  assert.equal(
+    classifyBluetoothConnectError(
+      Object.assign(new Error("User cancelled the requestDevice() chooser."), { name: "NotFoundError" })
+    ),
+    "canceled",
+    "chooser cancel must not be classified as not-found"
+  );
+  assert.notEqual(phoneScannerErrorText("canceled"), null);
+  assert.notEqual(
+    phoneScannerErrorText("canceled"),
+    PHONE_SCANNER_NOT_DETECTED_TITLE,
+    "cancel copy must not say service not detected"
+  );
   assert.equal(classifyBluetoothConnectError(Object.assign(new Error("x"), { name: "SecurityError" })), "security");
   assert.equal(classifyBluetoothConnectError(Object.assign(new Error("x"), { name: "NotSupportedError" })), "adapter");
   assert.equal(classifyBluetoothConnectError(new Error("No Bluetooth adapter found")), "adapter");

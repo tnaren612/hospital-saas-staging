@@ -455,6 +455,14 @@ test("M6-HID(19/20): typing in patient-name / medicine-search inputs is never a 
   assert.equal(isEditableTarget(undefined), false);
 });
 
+test("M6-HID(19c): real DOM inputs expose isContentEditable=false and must still be skipped", () => {
+  assert.equal(isEditableTarget({ tagName: "INPUT", isContentEditable: false }), true);
+  assert.equal(isEditableTarget({ tagName: "TEXTAREA", isContentEditable: false }), true);
+  assert.equal(isEditableTarget({ tagName: "SELECT", isContentEditable: false }), true);
+  assert.equal(isEditableTarget({ tagName: "BUTTON", isContentEditable: false }), false);
+  assert.equal(isEditableTarget({ tagName: "DIV", isContentEditable: false }), false);
+});
+
 test("M6-HID(19b): a slow human burst in the input is classified 'manual', not 'hid'", () => {
   const h = makeHarness();
   // The input commits on Enter either way, but the source tag must be

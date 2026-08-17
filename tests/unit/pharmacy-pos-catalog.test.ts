@@ -29,6 +29,7 @@ import { PharmacySqliteStore } from "../../src/lib/pharmacy/sqlite-store";
 import {
   commitBatchLocally,
   commitMedicineLocally,
+  commitMedicineWithBatchLocally,
   fetchLocalMedicines,
 } from "../../src/lib/pharmacy/local-tx";
 import {
@@ -361,6 +362,90 @@ test("unknown barcode: the medicine survives a server restart (file-backed store
     rmSync(`${file}-wal`, { force: true });
     rmSync(`${file}-shm`, { force: true });
   }
+});
+
+test("unknown barcode: medicine + opening batch commit atomically (action=medicine-with-batch)", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured: { url: string; body: Record<string, unknown> } | null = null;
+  try {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> };
+      return new Response(
+        JSON.stringify({ data: { id: "med-atomic", name: "Paracetamol 500mg", stock_qty: 25 } }),
+        { status: 201, headers: { "Content-Type": "application/json" } }
+      );
+    }) as unknown as typeof fetch;
+
+    const result = await commitMedicineWithBatchLocally({
+      name: "Paracetamol 500mg",
+      barcode: "8907654321098",
+      selling_price: 15,
+      qty: 25,
+      batch_number: "B-OPEN",
+    });
+    assert.equal(result.ok, true);
+    const call = captured as unknown as { url: string; body: Record<string, unknown> };
+    assert.match(call.url, /action=medicine-with-batch/);
+    assert.equal(call.body.qty, 25);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("cart: functional updater composes two rapid adds from the same snapshot", () => {
+  const a: CatalogMed = { id: "a", name: "Alpha", selling_price: 10, stock_qty: 10 };
+  const b: CatalogMed = { id: "b", name: "Beta", selling_price: 20, stock_qty: 10 };
+  const snapshot: CatalogCartLine[] = [];
+
+  const fromSnapshotA = addLineToCart(snapshot, a, 1, 12);
+  const fromSnapshotB = addLineToCart(snapshot, b, 1, 12);
+  assert.equal(fromSnapshotA.ok, true);
+  assert.equal(fromSnapshotB.ok, true);
+  if (fromSnapshotB.ok) {
+    assert.equal(fromSnapshotB.cart.length, 1, "stale snapshot keeps only the second medicine");
+  }
+
+  const composed = fromSnapshotA.ok ? addLineToCart(fromSnapshotA.cart, b, 1, 12) : fromSnapshotA;
+  assert.equal(composed.ok, true);
+  if (composed.ok) {
+    assert.equal(composed.cart.length, 2, "functional apply keeps both rapid adds");
+    assert.deepEqual(
+      composed.cart.map((c) => c.medicine_id),
+      ["a", "b"]
+    );
+  }
+
+  const sameAgain = fromSnapshotA.ok ? addLineToCart(fromSnapshotA.cart, a, 1, 12) : fromSnapshotA;
+  assert.equal(sameAgain.ok, true);
+  if (sameAgain.ok) {
+    assert.equal(sameAgain.cart[0]?.quantity, 2, "same-medicine rapid scan increments qty");
+  }
+});
+
+test("unknown barcode: catalog is immediately resolvable after the atomic create (refresh-before-rescan)", () => {
+  const store = new PharmacySqliteStore();
+  const created = store.createMedicineWithOpeningBatch(
+    { name: "Fresh Scan Med", barcode: "8902222222222", sku: "FRESH-1", selling_price: 18 },
+    { batch_number: "B-FRESH", selling_price: 18, qty: 12 }
+  );
+  const rows = store.listMedicines({ limit: 2000 });
+  const index = buildMedicineIndex(toIndexed(rows));
+  const hit = findMedicineByBarcode(index, "8902222222222");
+  assert.ok(hit, "scanner index sees the new medicine without a second create");
+  assert.equal(hit.id, String(created.id));
+  assert.equal(Number(store.getMedicine(String(created.id))?.stock_qty), 12);
+});
+
+test("unknown barcode: medicine + batch roll back together when the batch insert fails", () => {
+  const store = new PharmacySqliteStore();
+  assert.throws(
+    () =>
+      store.createMedicineWithOpeningBatch(
+        { name: "Atomic Med", barcode: "8901111111111", selling_price: 10 },
+        { batch_number: "", selling_price: 10, qty: 5 }
+      )
+  );
+  assert.equal(store.listMedicines().length, 0, "failed batch must not leave an orphan medicine");
 });
 
 test("duplicate barcode is rejected by the store — the scanner re-links the existing medicine", () => {

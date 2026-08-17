@@ -611,8 +611,12 @@ export class PharmacySqliteStore {
     this.db.prepare(sql).run(...params);
   }
 
-  /** Run statements atomically; ROLLBACK on any throw. */
+  private txDepth = 0;
+
+  /** Run statements atomically; ROLLBACK on any throw. Nested calls share the outer transaction. */
   private tx<T>(fn: () => T): T {
+    if (this.txDepth > 0) return fn();
+    this.txDepth += 1;
     this.db.exec("BEGIN");
     try {
       const result = fn();
@@ -625,7 +629,21 @@ export class PharmacySqliteStore {
         /* ignore */
       }
       throw e;
+    } finally {
+      this.txDepth = 0;
     }
+  }
+
+  /** Create a medicine and its opening batch in one transaction. */
+  createMedicineWithOpeningBatch(
+    medicine: MedicineInput,
+    batch: Omit<BatchInput, "medicine_id">
+  ): Record<string, unknown> {
+    return this.tx(() => {
+      const created = this.createMedicine(medicine);
+      this.addBatch({ ...batch, medicine_id: String(created.id) });
+      return this.getMedicine(String(created.id))!;
+    });
   }
 
   // -- counters ---------------------------------------------------------------

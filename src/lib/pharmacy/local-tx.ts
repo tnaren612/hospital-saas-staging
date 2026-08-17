@@ -51,6 +51,13 @@ export async function commitBatchLocally(
   return postAction("batch", payload);
 }
 
+/** Persist a medicine and its opening batch in one SQLite transaction. */
+export async function commitMedicineWithBatchLocally(
+  payload: Record<string, unknown>
+): Promise<LocalTxResult<Record<string, unknown>>> {
+  return postAction("medicine-with-batch", payload);
+}
+
 async function postAction(
   action: string,
   payload: Record<string, unknown>

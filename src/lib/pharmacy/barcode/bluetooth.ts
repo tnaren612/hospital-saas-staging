@@ -79,11 +79,15 @@ const CONNECT_FAILURE_MESSAGES: Record<
 /** Classify a requestDevice/connect failure (stable across browsers). */
 export function classifyBluetoothConnectError(error: unknown): BluetoothConnectFailure {
   const name = error instanceof Error ? error.name : "";
-  if (name === "NotFoundError") return "not-found";
+  const message = error instanceof Error ? String(error.message ?? "") : String(error ?? "");
+  if (name === "NotFoundError") {
+    // Chrome uses NotFoundError both when nothing advertises the service
+    // and when the user cancels the chooser.
+    return /cancel/i.test(message) ? "canceled" : "not-found";
+  }
   if (name === "NotAllowedError" || name === "AbortError") return "canceled";
   if (name === "SecurityError") return "security";
   if (name === "NotSupportedError") return "adapter";
-  const message = error instanceof Error ? String(error.message ?? "") : String(error ?? "");
   if (/bluetooth adapter/i.test(message)) return "adapter";
   return "unknown";
 }

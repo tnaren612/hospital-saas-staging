@@ -49,8 +49,7 @@ import {
 } from "@/lib/pharmacy/offline/cloud";
 import { createUuid } from "@/lib/pharmacy/offline/storage";
 import {
-  commitBatchLocally,
-  commitMedicineLocally,
+  commitMedicineWithBatchLocally,
   commitSaleLocally,
   fetchLocalMedicines,
 } from "@/lib/pharmacy/local-tx";
@@ -403,12 +402,20 @@ export function PosView() {
   const outstandingTotal = outstanding.reduce((s, o) => s + o.balance, 0);
 
   const addToCart = (med: CatalogMed, qty = 1) => {
-    const out = addLineToCart(cart, med, qty, resolvedSettings.default_gst_percent || 0);
-    if (!out.ok) {
-      toast.error(out.message);
+    const gst = resolvedSettings.default_gst_percent || 0;
+    let blocked: string | null = null;
+    setCart((prev) => {
+      const out = addLineToCart(prev, med, qty, gst);
+      if (!out.ok) {
+        blocked = out.message;
+        return prev;
+      }
+      return out.cart;
+    });
+    if (blocked) {
+      toast.error(blocked);
       return;
     }
-    setCart(out.cart);
     setSearch("");
     setViewAll(false);
   };
@@ -461,6 +468,7 @@ export function PosView() {
     const price = Number(unknownForm.price) || 0;
     const stock = Number(unknownForm.stock) || 0;
     const timestamp = new Date().toISOString();
+    const batchNumber = `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`;
     const medicinePayload: Record<string, unknown> = {
       name,
       sku: unknownCode,
@@ -472,13 +480,14 @@ export function PosView() {
       reorder_level: 0,
       min_stock_level: 0,
       unit: "tab",
+      batch_number: batchNumber,
+      expiry_date: null,
+      qty: stock,
+      stock_qty: stock,
     };
     setBusy(true);
     try {
-      // SQLite is the authoritative store: the medicine (and its opening
-      // stock) must be committed BEFORE it is queued for the cloud, so a
-      // duplicate scan can never reach the queue.
-      const created = await commitMedicineLocally(medicinePayload);
+      const created = await commitMedicineWithBatchLocally(medicinePayload);
       if (!created.ok) {
         toast.error(
           created.kind === "network"
@@ -487,22 +496,7 @@ export function PosView() {
         );
         return;
       }
-      const batch = await commitBatchLocally({
-        medicine_id: String(created.data.id),
-        batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
-        expiry_date: null,
-        selling_price: price,
-        purchase_price: 0,
-        qty: stock,
-      });
-      if (!batch.ok) {
-        toast.error(batch.error || "Medicine saved, but its opening stock could not be added.");
-        return;
-      }
 
-      // Queue for the cloud (if the server supports it). If the queue were
-      // flushed first it would find the same barcode and return the
-      // medicine we just created — never a duplicate.
       await enqueueMutation(storage, {
         id,
         hospitalId: "local",
@@ -511,18 +505,13 @@ export function PosView() {
         payload: {
           _clientId: id,
           ...medicinePayload,
-          stock_qty: stock,
-          batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
-          expiry_date: null,
           created_at: timestamp,
           updated_at: timestamp,
         },
         targetKey: `medicine::${id}`,
       });
 
-      // Refresh the catalog from SQLite so the medicine appears in the
-      // list/search/scanner index immediately (no page refresh needed).
-      void mergeLocalMedicines();
+      await mergeLocalMedicines();
 
       toast.success(`${name} added to the local store — you can scan it again now.`);
       setUnknownCode(null);
@@ -539,7 +528,7 @@ export function PosView() {
           manufacturer: "Unknown",
           selling_price: price,
           stock_qty: stock,
-          batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
+          batch_number: batchNumber,
           expiry_date: null,
           reorder_level: 0,
           updated_at: timestamp,

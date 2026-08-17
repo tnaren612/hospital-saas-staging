@@ -38,6 +38,7 @@ const KINDS = [
 const ACTIONS = [
   "medicine",
   "batch",
+  "medicine-with-batch",
   "add-stock",
   "adjustment",
   "purchase",
@@ -177,6 +178,28 @@ export async function POST(request: Request) {
           );
         }
         data = store.addBatch(parsed.data as BatchInput);
+        break;
+      }
+      case "medicine-with-batch": {
+        const medParsed = medicineInputSchema.safeParse(body);
+        if (!medParsed.success) {
+          return NextResponse.json(
+            { error: "Validation failed", details: medParsed.error.flatten(), kind: "validation" },
+            { status: 400 }
+          );
+        }
+        const batchNumber =
+          typeof body.batch_number === "string" && String(body.batch_number).trim()
+            ? String(body.batch_number).trim()
+            : `B-OPEN`;
+        data = store.createMedicineWithOpeningBatch(medParsed.data as MedicineInput, {
+          batch_number: batchNumber,
+          expiry_date:
+            typeof body.expiry_date === "string" ? String(body.expiry_date) : null,
+          selling_price: Number(body.selling_price || 0),
+          purchase_price: Number(body.purchase_price || 0),
+          qty: Number(body.qty ?? body.stock_qty ?? 0),
+        });
         break;
       }
       case "add-stock": {
