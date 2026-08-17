@@ -54,6 +54,8 @@ declare
   v_created boolean := false;
   v_return_id uuid;
   v_return_number text;
+  v_unit numeric;
+  v_total numeric;
 begin
   if p_return_number is null or length(trim(p_return_number)) = 0 then
     raise exception 'return_number required';
@@ -121,10 +123,23 @@ begin
     exception when others then
       v_med := null;
     end;
-    v_qty := coalesce((v_line->>'qty')::integer, 0);
+    v_qty := coalesce(
+      nullif(v_line->>'qty', '')::integer,
+      nullif(v_line->>'quantity', '')::integer,
+      0
+    );
     if v_med is null or v_qty <= 0 then
       continue;
     end if;
+    v_unit := coalesce(
+      nullif(v_line->>'unit_price', '')::numeric,
+      nullif(v_line->>'price', '')::numeric,
+      0
+    );
+    v_total := coalesce(
+      nullif(v_line->>'total_price', '')::numeric,
+      round(v_unit * v_qty, 2)
+    );
 
     select count(*) into v_exists
       from public.pharmacy_stock_movements
@@ -156,10 +171,10 @@ begin
     select
       v_return.id,
       v_med,
-      coalesce(v_line->>'name', 'item'),
+      coalesce(v_line->>'medicine_name', v_line->>'name', 'item'),
       v_qty,
-      0,
-      0
+      v_unit,
+      v_total
     where not exists (
       select 1
         from public.pharmacy_return_items

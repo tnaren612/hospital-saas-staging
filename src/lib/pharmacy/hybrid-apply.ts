@@ -387,19 +387,47 @@ export function clientReturnNumber(payload: Record<string, unknown>): string | n
 
 export function returnLinesFromPayload(
   payload: Record<string, unknown>
-): Array<{ medicine_id: string; qty: number; name: string }> {
+): Array<{
+  medicine_id: string;
+  qty: number;
+  quantity: number;
+  name: string;
+  medicine_name: string;
+  unit_price: number;
+  price: number;
+  total_price: number;
+}> {
   const items = Array.isArray(payload.items)
     ? (payload.items as Array<Record<string, unknown>>)
     : [];
-  const lines: Array<{ medicine_id: string; qty: number; name: string }> = [];
+  const lines: Array<{
+    medicine_id: string;
+    qty: number;
+    quantity: number;
+    name: string;
+    medicine_name: string;
+    unit_price: number;
+    price: number;
+    total_price: number;
+  }> = [];
   for (const item of items) {
     const medicineId = asTrimmedString(item.medicine_id);
     const qty = Number(item.qty ?? item.quantity ?? 0);
     if (!medicineId || qty <= 0) continue;
+    const unitPrice = Number(item.unit_price ?? item.price ?? 0);
+    const totalPrice = Number(
+      item.total_price ?? (Number.isFinite(unitPrice) ? unitPrice * qty : 0)
+    );
+    const name = String(item.medicine_name || item.name || "item");
     lines.push({
       medicine_id: medicineId,
       qty,
-      name: String(item.medicine_name || item.name || "item"),
+      quantity: qty,
+      name,
+      medicine_name: name,
+      unit_price: unitPrice,
+      price: unitPrice,
+      total_price: Number(totalPrice.toFixed(2)),
     });
   }
   return lines;
