@@ -653,9 +653,15 @@ export async function createPosSale(
     return demoPharmacy.createPosSale(input);
   }
   const sb = client();
+  const payload = {
+    ...(input as unknown as Record<string, unknown>),
+    sale_number:
+      input.sale_number ||
+      `PH-${Date.now().toString().slice(-8)}`,
+  };
   const applied = await applyCloudSale(
     createSupabaseHybridStore(sb),
-    input as unknown as Record<string, unknown>,
+    payload,
     opts.hospitalId
   );
   if (!applied.duplicate) {

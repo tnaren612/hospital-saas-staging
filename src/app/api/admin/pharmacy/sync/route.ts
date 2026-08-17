@@ -20,6 +20,12 @@ import {
 import { posSaleSchema } from "@/lib/pharmacy/validation";
 import type { SyncEntity } from "@/lib/pharmacy/offline/types";
 import { hasSupabaseConfig } from "@/lib/supabase/env";
+import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  getSharedPharmacySqlite,
+  isPharmacyLocalMode,
+} from "@/lib/pharmacy/sqlite-path";
+import { writeSyncLedger } from "@/lib/pharmacy/sync-ledger";
 import {
   applyCloudCategory,
   applyCloudCustomer,
@@ -31,7 +37,6 @@ import {
 } from "@/lib/pharmacy/hybrid-apply";
 import { createSupabaseHybridStore } from "@/lib/pharmacy/hybrid-supabase";
 import {
-  getPharmacySqlite,
   medicineInputSchema,
   returnInputSchema,
   sqliteSaleSchema,
@@ -40,16 +45,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/**
- * Local (standalone / fully offline) mode: when Supabase is not configured —
- * or explicitly requested with `?backend=sqlite` — every push op and pull is
- * served by the on-disk SQLite pharmacy store so the app keeps working with
- * the internet completely unavailable.
- */
-function isLocalMode(request: Request): boolean {
-  const url = new URL(request.url);
-  if (url.searchParams.get("backend") === "sqlite") return true;
-  return !hasSupabaseConfig();
+/** Standalone mode: no Supabase. `backend=sqlite` cannot open a second store. */
+function isLocalMode(): boolean {
+  return isPharmacyLocalMode(hasSupabaseConfig());
 }
 
 const SYNC_ENTITIES = [
@@ -110,8 +108,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unsupported pull entity" }, { status: 400 });
   }
 
-  const local = isLocalMode(request);
-  const store = local ? getPharmacySqlite() : null;
+  const local = isLocalMode();
+  const store = local ? getSharedPharmacySqlite() : null;
 
   if (local && store) {
     const LOCAL_PULL_ENTITIES = new Set([
@@ -358,7 +356,7 @@ function applyLocalOp(
 }
 
 async function ledgerLookup(
-  sb: NonNullable<Awaited<ReturnType<typeof requireHmsAdmin>>["supabase"]>,
+  sb: ReturnType<typeof createServiceRoleClient>,
   opId: string,
   hospitalId: string | null
 ) {
@@ -397,10 +395,9 @@ export async function POST(request: Request) {
   }
 
   const results = [];
-  const sb = gate.supabase;
 
-  const local = isLocalMode(request);
-  const store = local ? getPharmacySqlite() : null;
+  const local = isLocalMode();
+  const store = local ? getSharedPharmacySqlite() : null;
 
   if (local && store) {
     for (const op of parsed.data.ops) {
@@ -431,9 +428,11 @@ export async function POST(request: Request) {
     });
   }
 
+  const service = createServiceRoleClient();
+
   for (const op of parsed.data.ops) {
     try {
-      const ledger = await ledgerLookup(sb, op.id, tenant.hospitalId);
+      const ledger = await ledgerLookup(service, op.id, tenant.hospitalId);
       // Only an applied ledger row is a replay hit. Failed/conflict must
       // re-attempt so retries can succeed after medicine apply or recovery.
       if (ledger?.status === "applied") {
@@ -452,8 +451,10 @@ export async function POST(request: Request) {
         response: Record<string, unknown> | null,
         error: string | null
       ) => {
-        if (!sb) return;
-        const row = {
+        if (!tenant.hospitalId) {
+          throw new Error("pharmacy_sync_ledger requires hospital_id");
+        }
+        await writeSyncLedger(service, ledger, {
           op_id: op.id,
           hospital_id: tenant.hospitalId,
           entity: op.entity,
@@ -461,21 +462,13 @@ export async function POST(request: Request) {
           status,
           response,
           error,
-        };
-        if (ledger) {
-          await sb
-            .from("pharmacy_sync_ledger")
-            .update({ status, response, error })
-            .eq("op_id", op.id);
-        } else {
-          await sb.from("pharmacy_sync_ledger").insert(row);
-        }
+        });
       };
 
       let applied: Record<string, unknown> | null = null;
       const hospitalId = tenant.hospitalId;
       const cloudStore =
-        sb && hospitalId ? createSupabaseHybridStore(sb) : null;
+        hospitalId ? createSupabaseHybridStore(service) : null;
       switch (op.entity) {
         case "sale": {
           const sale = posSaleSchema.safeParse(op.payload);
@@ -559,28 +552,17 @@ export async function POST(request: Request) {
     } catch (err) {
       const message = applyErrorMessage(err);
       const isConflict = classifyApplyFailure(message) === "conflict";
-      if (sb) {
-        const ledger = await ledgerLookup(sb, op.id, tenant.hospitalId);
-        if (ledger) {
-          await sb
-            .from("pharmacy_sync_ledger")
-            .update({
-              status: isConflict ? "conflict" : "failed",
-              response: null,
-              error: message,
-            })
-            .eq("op_id", op.id);
-        } else {
-          await sb.from("pharmacy_sync_ledger").insert({
-            op_id: op.id,
-            hospital_id: tenant.hospitalId,
-            entity: op.entity,
-            action: op.action,
-            status: isConflict ? "conflict" : "failed",
-            response: null,
-            error: message,
-          });
-        }
+      const latest = await ledgerLookup(service, op.id, tenant.hospitalId);
+      if (tenant.hospitalId) {
+        await writeSyncLedger(service, latest, {
+          op_id: op.id,
+          hospital_id: tenant.hospitalId,
+          entity: op.entity,
+          action: op.action,
+          status: isConflict ? "conflict" : "failed",
+          response: null,
+          error: message,
+        });
       }
       results.push({
         opId: op.id,

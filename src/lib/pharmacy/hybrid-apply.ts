@@ -111,9 +111,19 @@ export type HybridCloudStore = {
     barcode: string
   ): Promise<Record<string, unknown> | null>;
   insertMedicine(row: Record<string, unknown>): Promise<Record<string, unknown>>;
-  getMedicineStock(id: string): Promise<number | null>;
-  decrementMedicineStock(id: string, qty: number): Promise<void>;
+  getMedicineStock(id: string, hospitalId?: string): Promise<number | null>;
+  decrementMedicineStock(
+    id: string,
+    qty: number,
+    hospitalId: string
+  ): Promise<void>;
   insertStockMovement(row: Record<string, unknown>): Promise<void>;
+  applySaleReplica(input: {
+    hospitalId: string;
+    saleNumber: string;
+    saleRow: Record<string, unknown>;
+    lines: Array<{ medicine_id: string; qty: number; name: string }>;
+  }): Promise<{ row: Record<string, unknown>; created: boolean }>;
   findByName(
     entity: "customer" | "supplier" | "category",
     hospitalId: string,
@@ -244,63 +254,65 @@ export function saleRowFromPayload(
   };
 }
 
+export function saleLinesFromPayload(
+  payload: Record<string, unknown>
+): Array<{ medicine_id: string; qty: number; name: string }> {
+  const items = Array.isArray(payload.items)
+    ? (payload.items as Array<Record<string, unknown>>)
+    : [];
+  const lines: Array<{ medicine_id: string; qty: number; name: string }> = [];
+  for (const item of items) {
+    const medicineId = asTrimmedString(item.medicine_id);
+    const qty = Number(item.qty ?? item.quantity ?? 0);
+    if (!medicineId || qty <= 0) continue;
+    lines.push({
+      medicine_id: medicineId,
+      qty,
+      name: String(item.name || "item"),
+    });
+  }
+  return lines;
+}
+
 export async function applyCloudSale(
   store: HybridCloudStore,
   payload: Record<string, unknown>,
   hospitalId: string
 ): Promise<ApplyResult> {
-  const saleNumber =
-    clientSaleNumber(payload) || `PH-${Date.now().toString().slice(-8)}`;
-  const existing = await store.findSaleByNumber(hospitalId, saleNumber);
-  if (existing) {
-    return { id: String(existing.id), duplicate: true, row: existing };
-  }
-
-  const items = Array.isArray(payload.items)
-    ? (payload.items as Array<Record<string, unknown>>)
-    : [];
-  if (!items.length) throw new Error("Invalid sale payload");
-
-  for (const item of items) {
-    const medicineId = asTrimmedString(item.medicine_id);
-    if (!medicineId) continue;
-    const qty = Number(item.qty ?? item.quantity ?? 0);
-    const available = await store.getMedicineStock(medicineId);
-    if (available == null || available < qty) {
-      throw new Error(
-        `Insufficient stock for ${String(item.name || "item")}. Available: ${available ?? 0}`
-      );
-    }
-  }
-
-  let inserted: Record<string, unknown>;
+  const saleNumber = clientSaleNumber(payload);
+  if (!saleNumber) throw new Error("sale_number required");
+  const lines = saleLinesFromPayload(payload);
+  if (!lines.length) throw new Error("Invalid sale payload");
+  const saleRow = saleRowFromPayload(payload, hospitalId, saleNumber);
   try {
-    inserted = await store.insertSale(saleRowFromPayload(payload, hospitalId, saleNumber));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/duplicate|unique|already exists/i.test(message)) {
-      const raced = await store.findSaleByNumber(hospitalId, saleNumber);
-      if (raced) return { id: String(raced.id), duplicate: true, row: raced };
-    }
-    throw err;
-  }
-
-  for (const item of items) {
-    const medicineId = asTrimmedString(item.medicine_id);
-    if (!medicineId) continue;
-    const qty = Number(item.qty ?? item.quantity ?? 0);
-    if (qty <= 0) continue;
-    await store.decrementMedicineStock(medicineId, qty);
-    await store.insertStockMovement({
-      hospital_id: hospitalId,
-      medicine_id: medicineId,
-      movement_type: "out",
-      quantity: qty,
-      reference: saleNumber,
+    const applied = await store.applySaleReplica({
+      hospitalId,
+      saleNumber,
+      saleRow,
+      lines,
     });
+    return {
+      id: String(applied.row.id),
+      duplicate: !applied.created,
+      row: applied.row,
+    };
+  } catch (err) {
+    const message = applyErrorMessage(err);
+    if (/duplicate|unique|already exists/i.test(message)) {
+      const applied = await store.applySaleReplica({
+        hospitalId,
+        saleNumber,
+        saleRow,
+        lines,
+      });
+      return {
+        id: String(applied.row.id),
+        duplicate: true,
+        row: applied.row,
+      };
+    }
+    throw err instanceof Error ? err : new Error(message);
   }
-
-  return { id: String(inserted.id), duplicate: false, row: inserted };
 }
 
 async function applyNamedEntity(
@@ -396,6 +408,10 @@ export class MemoryHybridCloudStore implements HybridCloudStore {
   suppliers: Record<string, unknown>[] = [];
   categories: Record<string, unknown>[] = [];
   purchaseOrders: Record<string, unknown>[] = [];
+  /** Test hook: throw once from decrement after the sale row exists. */
+  failNextDecrement: Error | null = null;
+  /** Test hook: leave a committed sale if decrement fails (no rollback). */
+  simulateCommittedPartial = false;
 
   private nextId(prefix: string): string {
     return `${prefix}-${this.sales.length + this.medicines.length + this.customers.length + 1}-${Date.now().toString(36)}`;
@@ -453,21 +469,97 @@ export class MemoryHybridCloudStore implements HybridCloudStore {
     return inserted;
   }
 
-  async getMedicineStock(id: string) {
+  async getMedicineStock(id: string, hospitalId?: string) {
     const m = await this.findMedicineById(id);
-    return m ? Number(m.stock_qty ?? 0) : null;
+    if (!m) return null;
+    if (hospitalId && String(m.hospital_id || "") !== hospitalId) return null;
+    return Number(m.stock_qty ?? 0);
   }
 
-  async decrementMedicineStock(id: string, qty: number) {
-    const m = await this.findMedicineById(id);
-    if (!m) throw new Error("Medicine not found");
-    const next = Number(m.stock_qty ?? 0) - qty;
-    if (next < 0) throw new Error(`Insufficient stock. Available: ${m.stock_qty}`);
-    m.stock_qty = next;
+  async decrementMedicineStock(id: string, qty: number, hospitalId: string) {
+    if (this.failNextDecrement) {
+      const err = this.failNextDecrement;
+      this.failNextDecrement = null;
+      throw err;
+    }
+    const m = this.medicines.find(
+      (row) =>
+        String(row.id) === id && String(row.hospital_id || "") === hospitalId
+    );
+    const available = m ? Number(m.stock_qty ?? 0) : 0;
+    if (!m || available < qty) {
+      throw new Error(`Insufficient stock. Available: ${m ? available : 0}`);
+    }
+    m.stock_qty = available - qty;
   }
 
   async insertStockMovement(row: Record<string, unknown>) {
     this.movements.push({ ...row, id: this.nextId("mv") });
+  }
+
+  async applySaleReplica(input: {
+    hospitalId: string;
+    saleNumber: string;
+    saleRow: Record<string, unknown>;
+    lines: Array<{ medicine_id: string; qty: number; name: string }>;
+  }): Promise<{ row: Record<string, unknown>; created: boolean }> {
+    const existing = await this.findSaleByNumber(input.hospitalId, input.saleNumber);
+    const stockSnap = this.medicines.map((m) => ({
+      id: m.id,
+      stock_qty: m.stock_qty,
+    }));
+    const moveSnap = this.movements.length;
+    let created = false;
+    let sale = existing;
+    try {
+      if (!sale) {
+        try {
+          sale = await this.insertSale(input.saleRow);
+          created = true;
+        } catch (err) {
+          const message = applyErrorMessage(err);
+          if (/duplicate|unique|already exists/i.test(message)) {
+            sale = await this.findSaleByNumber(input.hospitalId, input.saleNumber);
+            if (!sale) throw err;
+            created = false;
+          } else {
+            throw err;
+          }
+        }
+      }
+      for (const line of input.lines) {
+        const already = this.movements.some(
+          (m) =>
+            String(m.reference) === input.saleNumber &&
+            String(m.medicine_id) === line.medicine_id &&
+            String(m.movement_type || "out") === "out"
+        );
+        if (already) continue;
+        await this.decrementMedicineStock(
+          line.medicine_id,
+          line.qty,
+          input.hospitalId
+        );
+        await this.insertStockMovement({
+          hospital_id: input.hospitalId,
+          medicine_id: line.medicine_id,
+          movement_type: "out",
+          quantity: line.qty,
+          reference: input.saleNumber,
+        });
+      }
+      return { row: sale, created };
+    } catch (err) {
+      if (created && !this.simulateCommittedPartial) {
+        this.sales = this.sales.filter((s) => s !== sale);
+        this.movements = this.movements.slice(0, moveSnap);
+        for (const snap of stockSnap) {
+          const m = this.medicines.find((row) => row.id === snap.id);
+          if (m) m.stock_qty = snap.stock_qty;
+        }
+      }
+      throw err;
+    }
   }
 
   private bucket(entity: "customer" | "supplier" | "category" | "purchase_order") {

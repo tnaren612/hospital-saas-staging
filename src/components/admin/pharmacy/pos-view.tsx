@@ -76,6 +76,7 @@ import {
   toPosLineItems,
   type PosPaymentLine,
 } from "@/lib/pharmacy/pos-offline";
+import { beginCharge, endCharge } from "@/lib/pharmacy/pos-charge-lock";
 import {
   type IndexedMedicine,
   buildMedicineIndex,
@@ -166,6 +167,7 @@ export function PosView() {
   const [splitMode, setSplitMode] = useState(false);
   const [quickAmount, setQuickAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const chargeLock = useRef({ locked: false, saleNumber: null as string | null });
   const [previewData, setPreviewData] = useState<ReceiptData | null>(null);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [unknownForm, setUnknownForm] = useState({ name: "", price: "", stock: "" });
@@ -579,9 +581,12 @@ export function PosView() {
       toast.error("Payment is short — add another tender or mark as credit.");
       return;
     }
+    const started = beginCharge(chargeLock.current, localSaleNumber);
+    if (!started.ok) return;
+    const saleNumber = started.saleNumber;
     setBusy(true);
+    let committed = false;
     try {
-      const saleNumber = localSaleNumber();
       const result = buildPosPayload({
         customer: {
           patientName,
@@ -630,11 +635,12 @@ export function PosView() {
         return;
       }
 
-      const committed = tx.data;
+      committed = true;
+      const committedSale = tx.data;
 
       // 2) Receipt becomes FINAL only from the committed transaction row.
       const receipt =
-        receiptDataFromSale(committed, {
+        receiptDataFromSale(committedSale, {
           hospital: {
             name: resolvedHospital.branding.name || "Sri Srinivasa Hospital",
             address: [
@@ -656,7 +662,7 @@ export function PosView() {
           pharmacistName: resolvedSettings.pharmacist_name || "",
         }) ??
         buildReceiptData({
-          sale: { id: String(committed.id), sale_number: saleNumber, created_at: String(committed.created_at ?? "") },
+          sale: { id: String(committedSale.id), sale_number: saleNumber, created_at: String(committedSale.created_at ?? "") },
           hospital: {
             name: resolvedHospital.branding.name || "Sri Srinivasa Hospital",
             address: [
@@ -676,11 +682,11 @@ export function PosView() {
           settings: resolvedSettings,
           cartLines: cart,
           totals,
-          amountPaid: Number(committed.amount_paid ?? result.payload.amount_paid),
-          amountReturned: Number(committed.amount_returned ?? result.payload.amount_returned),
-          paymentMethod: String(committed.payment_method ?? result.payload.payment_method),
+          amountPaid: Number(committedSale.amount_paid ?? result.payload.amount_paid),
+          amountReturned: Number(committedSale.amount_returned ?? result.payload.amount_returned),
+          paymentMethod: String(committedSale.payment_method ?? result.payload.payment_method),
           paymentReference:
-            (committed.payment_reference as string) || result.payload.payment_reference || undefined,
+            (committedSale.payment_reference as string) || result.payload.payment_reference || undefined,
           cashierName,
           pharmacistName: resolvedSettings.pharmacist_name || "",
           customer: {
@@ -692,7 +698,7 @@ export function PosView() {
             prescriptionNumber: prescriptionNumber || null,
           },
           printedBy: cashierName,
-          transactionId: String(committed.id),
+          transactionId: String(committedSale.id),
         });
 
       // 3) Queue the COMMITTED transaction for cloud sync. Idempotent by
@@ -700,12 +706,12 @@ export function PosView() {
       //    local sale or double-deduct stock.
       try {
         await enqueueMutation(storage, {
-          id: String(committed.id),
+          id: String(committedSale.id),
           hospitalId: "local",
           entity: "sale",
           action: "create",
           payload,
-          targetKey: `sale::${committed.id}`,
+          targetKey: `sale::${committedSale.id}`,
         });
       } catch {
         toast.error("Sale committed locally, but could not be queued for cloud sync.");
@@ -731,6 +737,7 @@ export function PosView() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sale could not be completed.");
     } finally {
+      endCharge(chargeLock.current, committed);
       setBusy(false);
     }
   };

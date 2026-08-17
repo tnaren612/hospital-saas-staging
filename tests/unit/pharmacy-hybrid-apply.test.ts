@@ -153,23 +153,19 @@ describe("applyCloudSale", () => {
     assert.equal(store.sales.length, 0);
   });
 
-  it("treats a unique-violation race as the existing sale (no second deduct)", async () => {
+  it("unique-violation after insert still completes the missing stock out once", async () => {
     const store = new MemoryHybridCloudStore();
     await applyCloudMedicine(store, medicinePayload(), HOSPITAL);
     const originalInsert = store.insertSale.bind(store);
-    let calls = 0;
     store.insertSale = async (row) => {
-      calls += 1;
-      if (calls === 1) {
-        await originalInsert(row);
-        throw new Error("duplicate key value violates unique constraint");
-      }
-      return originalInsert(row);
+      await originalInsert(row);
+      throw new Error("duplicate key value violates unique constraint");
     };
     const applied = await applyCloudSale(store, salePayload(), HOSPITAL);
     assert.equal(applied.duplicate, true);
     assert.equal(store.sales.length, 1);
-    assert.equal(Number(store.medicines[0].stock_qty), 15);
+    assert.equal(Number(store.medicines[0].stock_qty), 14);
+    assert.equal(store.movements.length, 1);
   });
 });
 

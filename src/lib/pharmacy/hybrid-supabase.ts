@@ -28,9 +28,14 @@ async function insertStrippingUnknownColumns(
   throw new Error("Apply failed");
 }
 
+type RpcResult = { data: unknown; error: { message: string } | null };
+
 // Service-role client is untyped (custom Database maps). Keep the adapter loose.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Sb = { from: (table: string) => any };
+type Sb = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from: (table: string) => any;
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<RpcResult>;
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function withHospital(query: any, hospitalId: string) {
@@ -83,37 +88,43 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
       return insertStrippingUnknownColumns(sb, "medicines", row);
     },
 
-    async getMedicineStock(id) {
-      const { data, error } = await sb
-        .from("medicines")
-        .select("stock_qty")
-        .eq("id", id)
-        .maybeSingle();
+    async getMedicineStock(id, hospitalId) {
+      let q = sb.from("medicines").select("stock_qty").eq("id", id);
+      if (hospitalId) q = q.eq("hospital_id", hospitalId);
+      const { data, error } = await q.maybeSingle();
       if (error) throw error;
       if (!data) return null;
       return Number((data as { stock_qty?: number }).stock_qty ?? 0);
     },
 
-    async decrementMedicineStock(id, qty) {
-      const { data, error } = await sb
-        .from("medicines")
-        .select("stock_qty")
-        .eq("id", id)
-        .maybeSingle();
-      if (error) throw error;
-      const current = Number((data as { stock_qty?: number } | null)?.stock_qty ?? 0);
-      if (!data || current < qty) {
-        throw new Error(`Insufficient stock. Available: ${data ? current : 0}`);
-      }
-      const { error: updateError } = await sb
-        .from("medicines")
-        .update({ stock_qty: current - qty })
-        .eq("id", id);
-      if (updateError) throw updateError;
+    async decrementMedicineStock(id, qty, hospitalId) {
+      const { error } = await sb.rpc("pharmacy_decrement_stock", {
+        p_id: id,
+        p_hospital_id: hospitalId,
+        p_qty: qty,
+      });
+      if (error) throw new Error(applyErrorMessage(error));
     },
 
     async insertStockMovement(row) {
       await insertStrippingUnknownColumns(sb, "pharmacy_stock_movements", row);
+    },
+
+    async applySaleReplica(input) {
+      const { data, error } = await sb.rpc("pharmacy_apply_sale", {
+        p_hospital_id: input.hospitalId,
+        p_sale_number: input.saleNumber,
+        p_sale: input.saleRow,
+        p_lines: input.lines,
+      });
+      if (error) throw new Error(applyErrorMessage(error));
+      const payload = (data || {}) as {
+        created?: boolean;
+        sale?: Record<string, unknown>;
+      };
+      const row = payload.sale || (data as Record<string, unknown>);
+      if (!row || !row.id) throw new Error("Apply returned no row");
+      return { row, created: Boolean(payload.created) };
     },
 
     async findByName(entity, hospitalId, name) {

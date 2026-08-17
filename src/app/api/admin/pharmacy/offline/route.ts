@@ -16,6 +16,7 @@ import {
   type SqliteSaleInput,
 } from "@/lib/pharmacy/sqlite-store";
 import { POS_PAYMENT_METHODS } from "@/lib/pharmacy/validation";
+import { pharmacySqlitePath } from "@/lib/pharmacy/sqlite-path";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ const ACTIONS = [
 ] as const;
 
 function sqlitePath(): string | undefined {
-  return process.env.PHARMACY_SQLITE_PATH || undefined;
+  return pharmacySqlitePath();
 }
 
 export async function GET(request: Request) {
