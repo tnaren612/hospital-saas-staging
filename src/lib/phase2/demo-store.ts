@@ -94,6 +94,22 @@ function store() {
           reorder_level: 40,
           expiry_date: "2027-01-01",
         },
+        {
+          // M6 Android Bluetooth HID acceptance medicine: scan
+          // 8901234567897 + Enter and this row lands in the cart (₹56).
+          id: "m6-scanner-test",
+          name: "M6 Scanner Test Medicine",
+          manufacturer: "Demo Labs",
+          batch_number: "M6T2401",
+          category: "Demo",
+          sku: "8901234567897",
+          barcode: "8901234567897",
+          purchase_price: 40,
+          selling_price: 56,
+          stock_qty: 500,
+          reorder_level: 20,
+          expiry_date: "2027-12-31",
+        },
       ],
       sales: [],
       prescriptions: [],

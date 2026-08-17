@@ -49,9 +49,19 @@ import {
 } from "@/lib/pharmacy/offline/cloud";
 import { createUuid } from "@/lib/pharmacy/offline/storage";
 import {
+  commitBatchLocally,
+  commitMedicineLocally,
   commitSaleLocally,
   fetchLocalMedicines,
 } from "@/lib/pharmacy/local-tx";
+import {
+  addLineToCart,
+  addSplitTenderRow,
+  defaultTenders,
+  dispatchPosScan,
+  visibleCatalogList,
+  type CatalogMed,
+} from "@/lib/pharmacy/pos-catalog";
 import type { Medicine } from "@/lib/phase2/types";
 import type { PharmacySettings, ReceiptData } from "@/lib/pharmacy/types";
 import type { HospitalConfig } from "@/lib/hospital/types";
@@ -124,11 +134,6 @@ function fallbackSettings(): PharmacySettings {
   };
 }
 
-function expiryValid(expiry?: string | null): boolean {
-  if (!expiry) return true;
-  return new Date(`${expiry}T23:59:59`) >= new Date();
-}
-
 /** Search/scanner results carry price+stock so the offline catalog prices correctly. */
 type PosMedicine = IndexedMedicine & {
   selling_price?: number | string | null;
@@ -136,6 +141,8 @@ type PosMedicine = IndexedMedicine & {
   mrp?: number | string | null;
   expiry_date?: string | null;
   batch_number?: string | null;
+  updated_at?: string | null;
+  reorder_level?: number | string | null;
 };
 
 export function PosView() {
@@ -156,14 +163,16 @@ export function PosView() {
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [globalDiscount, setGlobalDiscount] = useState(0);
-  const [tenders, setTenders] = useState<PosPaymentLine[]>([
-    { methodId: "cash", amount: 0 },
-  ]);
+  const [tenders, setTenders] = useState<PosPaymentLine[]>(defaultTenders());
+  const [splitMode, setSplitMode] = useState(false);
   const [quickAmount, setQuickAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [previewData, setPreviewData] = useState<ReceiptData | null>(null);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [unknownForm, setUnknownForm] = useState({ name: "", price: "", stock: "" });
+  // Bumped whenever the unknown-barcode dialog closes — the scanner input
+  // refocuses so the next scan lands immediately.
+  const [scannerFocusSignal, setScannerFocusSignal] = useState(0);
   const [showHeld, setShowHeld] = useState(false);
   const [showBills, setShowBills] = useState(false);
   const cloud = useCloudStatus();
@@ -298,12 +307,16 @@ export function PosView() {
         id: m.id,
         name: m.name,
         sku: m.sku || null,
+        barcode: (m as { barcode?: unknown }).barcode ? String((m as { barcode?: unknown }).barcode) : null,
         generic_name: m.generic_name || null,
         manufacturer: m.manufacturer || null,
         selling_price: m.selling_price ?? null,
         stock_qty: m.stock_qty ?? null,
+        mrp: (m as { mrp?: unknown }).mrp ? Number((m as { mrp?: unknown }).mrp) : null,
         expiry_date: m.expiry_date ?? null,
         batch_number: m.batch_number ?? null,
+        reorder_level: (m as { reorder_level?: unknown }).reorder_level ? Number((m as { reorder_level?: unknown }).reorder_level) : null,
+        updated_at: (m as { updated_at?: unknown }).updated_at ? String((m as { updated_at?: unknown }).updated_at) : null,
       });
     }
     for (const rec of cachedMeds) {
@@ -320,6 +333,8 @@ export function PosView() {
         mrp: (d.mrp as number | string | null) ?? null,
         expiry_date: d.expiry_date ? String(d.expiry_date) : null,
         batch_number: d.batch_number ? String(d.batch_number) : null,
+        reorder_level: d.reorder_level ? Number(d.reorder_level) : null,
+        updated_at: d.updated_at ? String(d.updated_at) : null,
       });
     }
     return [...map.values()];
@@ -333,12 +348,36 @@ export function PosView() {
   };
 
   // ---- search (bucketed index → sub-ms for 100k+ rows) ----
+  // Search covers name / generic / manufacturer / SKU / barcode.
   const results = useMemo(
-    () => (search.trim() ? searchMedicines(index, search, { limit: 200 }) : []),
+    () =>
+      search.trim()
+        ? searchMedicines(index, search, {
+            limit: 200,
+            fields: ["name", "generic_name", "manufacturer", "sku", "barcode"],
+          })
+        : [],
     [index, search]
   );
+  // The medicine LIST under the search box: search results when typing,
+  // otherwise recently-used/available medicines with a "View all" toggle —
+  // the full catalog is never rendered by default.
+  const [viewAll, setViewAll] = useState(false);
+  const catalogList = useMemo(
+    () =>
+      visibleCatalogList({
+        medicines,
+        search,
+        // Search results ARE catalog rows (built from the same `medicines`
+        // array), so the cast only restores the enriched row type.
+        results: results as PosMedicine[],
+        viewAll,
+        recentLimit: 8,
+      }),
+    [medicines, search, results, viewAll]
+  );
   const resultsRef = useRef<HTMLDivElement>(null);
-  const virtual = useVirtualList(results, resultsRef, { rowHeight: 64, overscan: 8 });
+  const virtual = useVirtualList(catalogList.items, resultsRef, { rowHeight: 64, overscan: 8 });
 
   const totals = useMemo(
     () =>
@@ -363,63 +402,37 @@ export function PosView() {
   const outstanding = useMemo(() => outstandingBalances(cachedSales.map((r) => r.data)), [cachedSales]);
   const outstandingTotal = outstanding.reduce((s, o) => s + o.balance, 0);
 
-  const addToCart = (med: { id: string; name: string } & Record<string, unknown>, qty = 1) => {
-    const server = medRecord(med.id);
-    const stockQty = Number(med.stock_qty ?? server?.stock_qty ?? 0);
-    const price = Number(med.selling_price ?? server?.selling_price ?? 0);
-    const inCart = cart
-      .filter((c) => c.medicine_id === med.id)
-      .reduce((s, c) => s + c.quantity, 0);
-    if (inCart + qty > stockQty && stockQty > 0) {
-      toast.error(`${med.name} — only ${stockQty} in stock.`);
+  const addToCart = (med: CatalogMed, qty = 1) => {
+    const out = addLineToCart(cart, med, qty, resolvedSettings.default_gst_percent || 0);
+    if (!out.ok) {
+      toast.error(out.message);
       return;
     }
-    if (!expiryValid((med.expiry_date as string) || server?.expiry_date)) {
-      toast.error(`${med.name} is expired and cannot be dispensed.`);
-      return;
-    }
-    setCart((prev) => {
-      const existing = prev.find((c) => c.medicine_id === med.id);
-      if (existing) {
-        return prev.map((c) =>
-          c.medicine_id === med.id ? { ...c, quantity: c.quantity + qty } : c
-        );
-      }
-      return [
-        ...prev,
-        {
-          medicine_id: med.id,
-          name: String(med.name ?? ""),
-          generic_name: (med.generic_name as string) || undefined,
-          manufacturer: (med.manufacturer as string) || undefined,
-          batch_number: ((med.batch_number as string) || server?.batch_number) || undefined,
-          expiry_date: ((med.expiry_date as string) || server?.expiry_date) || null,
-          mrp: price,
-          selling_price: price,
-          quantity: qty,
-          gst_percent: resolvedSettings.default_gst_percent || 0,
-        },
-      ];
-    });
+    setCart(out.cart);
     setSearch("");
+    setViewAll(false);
   };
 
   const onScan = (raw: string, medicine: IndexedMedicine | null) => {
-    // Defense-in-depth: an empty / whitespace-only payload must never
-    // reach the cart (the pipeline already blocks these — this is the
-    // POS's own boundary).
-    if (!String(raw ?? "").trim()) return;
-    if (!medicine) {
-      setUnknownCode(raw);
-      setUnknownForm({ name: "", price: "", stock: "" });
-      return;
-    }
-    const found = medRecord(medicine.id) || medicines.find((m) => m.id === medicine.id);
-    if (!found) {
-      toast.error("Medicine record incomplete — add it in Inventory.");
-      return;
-    }
-    addToCart(found as unknown as Medicine);
+    // Every scanner source converges here (USB/BT HID, Android HID, camera,
+    // image upload, manual, BLE companion): empty payloads are ignored, an
+    // unknown code opens Add Medicine, a resolved medicine goes to the cart.
+    dispatchPosScan({
+      raw,
+      medicine,
+      add: (med) => {
+        const found = medRecord(med.id) || medicines.find((m) => m.id === med.id);
+        if (!found) {
+          toast.error("Medicine record incomplete — add it in Inventory.");
+          return;
+        }
+        addToCart(found);
+      },
+      onUnknown: (code) => {
+        setUnknownCode(code);
+        setUnknownForm({ name: "", price: "", stock: "" });
+      },
+    });
   };
 
   const addUnknownMedicine = async (e: React.FormEvent) => {
@@ -440,33 +453,104 @@ export function PosView() {
           : `SKU / barcode ${unknownCode} is already used by ${dup.medicine.name}.`
       );
       setUnknownCode(null);
+      setScannerFocusSignal((x) => x + 1);
       return;
     }
     const id = createUuid();
-    const payload: Record<string, unknown> = {
-      _clientId: id,
-      name: unknownForm.name.trim(),
+    const name = unknownForm.name.trim();
+    const price = Number(unknownForm.price) || 0;
+    const stock = Number(unknownForm.stock) || 0;
+    const timestamp = new Date().toISOString();
+    const medicinePayload: Record<string, unknown> = {
+      name,
       sku: unknownCode,
       barcode: unknownCode,
       generic_name: "",
       manufacturer: "Unknown",
-      selling_price: Number(unknownForm.price) || 0,
-      stock_qty: Number(unknownForm.stock) || 0,
+      selling_price: price,
+      purchase_price: 0,
       reorder_level: 0,
+      min_stock_level: 0,
       unit: "tab",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
-    await enqueueMutation(storage, {
-      id,
-      hospitalId: "local",
-      entity: "medicine",
-      action: "create",
-      payload,
-      targetKey: `medicine::${id}`,
-    });
-    toast.success(`${payload.name} added — you can scan it again now.`);
-    setUnknownCode(null);
+    setBusy(true);
+    try {
+      // SQLite is the authoritative store: the medicine (and its opening
+      // stock) must be committed BEFORE it is queued for the cloud, so a
+      // duplicate scan can never reach the queue.
+      const created = await commitMedicineLocally(medicinePayload);
+      if (!created.ok) {
+        toast.error(
+          created.kind === "network"
+            ? "Local store is unreachable — the medicine was not saved."
+            : created.error || "The medicine could not be saved."
+        );
+        return;
+      }
+      const batch = await commitBatchLocally({
+        medicine_id: String(created.data.id),
+        batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
+        expiry_date: null,
+        selling_price: price,
+        purchase_price: 0,
+        qty: stock,
+      });
+      if (!batch.ok) {
+        toast.error(batch.error || "Medicine saved, but its opening stock could not be added.");
+        return;
+      }
+
+      // Queue for the cloud (if the server supports it). If the queue were
+      // flushed first it would find the same barcode and return the
+      // medicine we just created — never a duplicate.
+      await enqueueMutation(storage, {
+        id,
+        hospitalId: "local",
+        entity: "medicine",
+        action: "create",
+        payload: {
+          _clientId: id,
+          ...medicinePayload,
+          stock_qty: stock,
+          batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
+          expiry_date: null,
+          created_at: timestamp,
+          updated_at: timestamp,
+        },
+        targetKey: `medicine::${id}`,
+      });
+
+      // Refresh the catalog from SQLite so the medicine appears in the
+      // list/search/scanner index immediately (no page refresh needed).
+      void mergeLocalMedicines();
+
+      toast.success(`${name} added to the local store — you can scan it again now.`);
+      setUnknownCode(null);
+      setUnknownForm({ name: "", price: "", stock: "" });
+      setScannerFocusSignal((x) => x + 1);
+
+      addToCart(
+        {
+          id: String(created.data.id),
+          name,
+          sku: unknownCode,
+          barcode: unknownCode,
+          generic_name: "",
+          manufacturer: "Unknown",
+          selling_price: price,
+          stock_qty: stock,
+          batch_number: `B-${unknownCode.replace(/[^A-Za-z0-9-]/g, "").slice(0, 20) || "OPEN"}`,
+          expiry_date: null,
+          reorder_level: 0,
+          updated_at: timestamp,
+        },
+        1
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "The medicine could not be saved.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const changeQty = (medicineId: string | undefined, delta: number) => {
@@ -485,8 +569,9 @@ export function PosView() {
   const resetCart = () => {
     setCart([]);
     setGlobalDiscount(0);
-    setTenders([{ methodId: "cash", amount: 0 }]);
+    setTenders(defaultTenders());
     setQuickAmount("");
+    setSplitMode(false);
   };
 
   const charge = async () => {
@@ -871,55 +956,105 @@ export function PosView() {
               onScan={onScan}
               sound={resolvedSettings.enable_sound_effects}
               continuous
+              focusSignal={scannerFocusSignal}
             />
             <div>
               <Label>Search medicine</Label>
               <Input
                 className="mt-1 text-base"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Name, generic, manufacturer or SKU…"
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (e.target.value.trim()) setViewAll(false);
+                }}
+                placeholder="Name, generic, manufacturer, SKU or barcode…"
                 autoComplete="off"
               />
             </div>
-            {search.trim() && (
-              <div
-                ref={resultsRef}
-                onScroll={virtual.onScroll}
-                className="max-h-80 overflow-auto rounded-lg border"
-              >
-                <div style={{ height: virtual.totalHeight, position: "relative" }}>
-                  <div style={{ transform: `translateY(${virtual.offsetY}px)` }}>
-                    {virtual.visible.map((m) => {
-                      const server = medRecord(m.id);
-                      const price = Number(server?.selling_price ?? 0);
-                      const stock = Number(server?.stock_qty ?? 0);
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => addToCart(m as unknown as Medicine)}
-                          className="flex w-full items-center justify-between gap-2 border-b px-3 py-3 text-left text-sm last:border-0 hover:bg-muted/40"
-                          style={{ height: 64 }}
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{m.name}</div>
-                            <div className="truncate text-xs text-muted-foreground">
-                              {m.manufacturer} {m.sku ? `· ${m.sku}` : ""}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className="font-semibold">{formatMoney(price, currency)}</div>
-                            <Badge variant={stock <= (server?.reorder_level ?? 0) ? "danger" : "outline"}>
-                              {stock} in stock
-                            </Badge>
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {virtual.visible.length === 0 && (
-                      <p className="p-4 text-center text-sm text-muted-foreground">No matching medicines.</p>
+            {(search.trim() || catalogList.items.length > 0) && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {catalogList.mode === "search"
+                      ? "Search results"
+                      : catalogList.mode === "all"
+                        ? "All medicines"
+                        : "Available medicines"}
+                  </span>
+                  {catalogList.mode === "recent" &&
+                    catalogList.total > catalogList.items.length && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => setViewAll(true)}
+                      >
+                        View all medicines ({catalogList.total})
+                      </Button>
                     )}
+                  {catalogList.mode === "all" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setViewAll(false)}
+                    >
+                      Show recent
+                    </Button>
+                  )}
+                </div>
+                <div
+                  ref={resultsRef}
+                  onScroll={virtual.onScroll}
+                  className="max-h-80 overflow-auto rounded-lg border"
+                >
+                  <div style={{ height: virtual.totalHeight, position: "relative" }}>
+                    <div style={{ transform: `translateY(${virtual.offsetY}px)` }}>
+                      {virtual.visible.map((m) => {
+                        const price = Number(m.selling_price ?? 0);
+                        const stock = Number(m.stock_qty ?? 0);
+                        const outOfStock = stock <= 0;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            disabled={outOfStock}
+                            onClick={() => addToCart(m)}
+                            className="flex w-full items-center justify-between gap-2 border-b px-3 py-3 text-left text-sm last:border-0 hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-60"
+                            style={{ height: 64 }}
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{m.name}</div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {m.barcode ? (
+                                  <span className="font-mono">{m.barcode}</span>
+                                ) : (
+                                  m.manufacturer || m.sku
+                                )}
+                                {m.batch_number ? ` · Batch ${m.batch_number}` : ""}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className="font-semibold">{formatMoney(price, currency)}</div>
+                              <Badge
+                                variant={
+                                  outOfStock || stock <= Number(m.reorder_level ?? 0)
+                                    ? "danger"
+                                    : "outline"
+                                }
+                              >
+                                {outOfStock ? "Out of stock" : `Stock ${stock}`}
+                              </Badge>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {virtual.visible.length === 0 && (
+                        <p className="p-4 text-center text-sm text-muted-foreground">
+                          No matching medicines.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1033,37 +1168,46 @@ export function PosView() {
 
         <Card>
           <CardContent className="space-y-3 p-5">
-            <h3 className="font-semibold">Payments (split / mixed)</h3>
-            <div className="grid grid-cols-3 gap-2">
-              {methods.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  disabled={!m.enabled}
-                  title={m.name}
-                  onClick={() =>
-                    setTenders((prev) => {
-                      if (prev.some((t) => t.methodId === m.id)) return prev;
-                      return [...prev, { methodId: m.id, amount: 0 }];
-                    })
-                  }
-                  className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-xs font-medium transition ${
-                    tenders.some((t) => t.methodId === m.id)
-                      ? "border-primary bg-primary/10 text-primary"
-                      : m.enabled
-                        ? "border-border hover:bg-muted/40"
-                        : "cursor-not-allowed border-dashed opacity-40"
-                  }`}
-                >
-                  {m.category === "cash" && <Banknote className="h-4 w-4" />}
-                  {m.category === "upi" && <Smartphone className="h-4 w-4" />}
-                  {m.category === "card" && <CreditCard className="h-4 w-4" />}
-                  {m.category === "insurance" && <ShieldCheck className="h-4 w-4" />}
-                  {(m.category === "credit" || m.category === "wallet") && <Wallet className="h-4 w-4" />}
-                  {m.name}
-                </button>
-              ))}
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold">Payments</h3>
+              <Button
+                size="sm"
+                variant={splitMode ? "default" : "outline"}
+                onClick={() => setSplitMode((v) => !v)}
+              >
+                {splitMode ? "Done" : "+ Split Payment"}
+              </Button>
             </div>
+            {/* Additional tender rows are created ONLY after the pharmacist
+                explicitly activates split payment. Normal mode keeps a
+                single Cash row. */}
+            {splitMode && (
+              <div className="grid grid-cols-3 gap-2">
+                {methods.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={!m.enabled}
+                    title={m.name}
+                    onClick={() => setTenders((prev) => addSplitTenderRow(prev, m.id))}
+                    className={`flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-xs font-medium transition ${
+                      tenders.some((t) => t.methodId === m.id)
+                        ? "border-primary bg-primary/10 text-primary"
+                        : m.enabled
+                          ? "border-border hover:bg-muted/40"
+                          : "cursor-not-allowed border-dashed opacity-40"
+                    }`}
+                  >
+                    {m.category === "cash" && <Banknote className="h-4 w-4" />}
+                    {m.category === "upi" && <Smartphone className="h-4 w-4" />}
+                    {m.category === "card" && <CreditCard className="h-4 w-4" />}
+                    {m.category === "insurance" && <ShieldCheck className="h-4 w-4" />}
+                    {(m.category === "credit" || m.category === "wallet") && <Wallet className="h-4 w-4" />}
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-2">
               {tenders.map((t, i) => (
@@ -1102,7 +1246,12 @@ export function PosView() {
                       }
                     />
                   ) : null}
-                  <Button size="icon" variant="ghost" onClick={() => setTenders(tenders.filter((_, j) => j !== i))}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={tenders.length <= 1}
+                    onClick={() => setTenders(tenders.filter((_, j) => j !== i))}
+                  >
                     <Trash2 className="h-4 w-4 text-rose-500" />
                   </Button>
                 </div>
@@ -1265,13 +1414,21 @@ export function PosView() {
                 </div>
               </div>
               <div className="flex justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={() => setUnknownCode(null)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setUnknownCode(null);
+                    setScannerFocusSignal((x) => x + 1);
+                  }}
+                >
                   Dismiss
                 </Button>
-                <Button type="submit">Add &amp; scan again</Button>
+                <Button type="submit" disabled={busy}>Add &amp; scan again</Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Added offline — it appears in the cart immediately and syncs when supported.
+                Saved to the local SQLite store — searchable and scannable immediately.
               </p>
             </form>
           </div>

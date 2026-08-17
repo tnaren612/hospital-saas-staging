@@ -33,6 +33,24 @@ export async function commitReturnLocally(
   return postAction("return", payload);
 }
 
+/**
+ * Persist a NEW medicine to the authoritative SQLite store (unknown-barcode
+ * flow). Returns the created medicine row (with its SQLite id) — the caller
+ * then creates its opening batch/stock and refreshes the catalog.
+ */
+export async function commitMedicineLocally(
+  payload: Record<string, unknown>
+): Promise<LocalTxResult<Record<string, unknown>>> {
+  return postAction("medicine", payload);
+}
+
+/** Persist an opening batch + stock for a medicine in the SQLite store. */
+export async function commitBatchLocally(
+  payload: Record<string, unknown>
+): Promise<LocalTxResult<Record<string, unknown>>> {
+  return postAction("batch", payload);
+}
+
 async function postAction(
   action: string,
   payload: Record<string, unknown>

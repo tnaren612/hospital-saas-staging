@@ -222,6 +222,27 @@ function applyLocalOp(
     case "medicine": {
       const med = medicineInputSchema.safeParse(op.payload);
       if (!med.success) throw new Error("Invalid medicine payload");
+      // Idempotent: the active POS commits medicines through the offline
+      // route FIRST (SQLite authority); a queued push of the same op must
+      // return the existing medicine and never create a duplicate.
+      const barcode =
+        typeof op.payload.barcode === "string" && String(op.payload.barcode).trim()
+          ? String(op.payload.barcode).trim()
+          : null;
+      const sku =
+        typeof op.payload.sku === "string" && String(op.payload.sku).trim()
+          ? String(op.payload.sku).trim()
+          : null;
+      let existing: Record<string, unknown> | null = barcode
+        ? store.findMedicineByBarcode(barcode)
+        : null;
+      if (!existing && sku) {
+        existing =
+          store
+            .listMedicines({ limit: 2000 })
+            .find((m) => String(m.sku ?? "") === sku) ?? null;
+      }
+      if (existing) return { id: String(existing.id) };
       const created = store.createMedicine(med.data);
       const batchNumber =
         typeof op.payload.batch_number === "string" &&

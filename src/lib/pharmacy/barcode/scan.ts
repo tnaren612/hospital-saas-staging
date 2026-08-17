@@ -105,7 +105,7 @@ export type MedicineLookupIndex = {
   byBarcode: Map<string, string>;
   /** every medicine whose SKU/barcode normalizes to a key — ambiguity detection */
   byBarcodeAll: Map<string, IndexedMedicine[]>;
-  /** first-2-char buckets for name/generic/manufacturer substring search */
+  /** first-2-char buckets for name/generic/manufacturer/sku/barcode substring search */
   buckets: Map<string, IndexedMedicine[]>;
   all: IndexedMedicine[];
 };
@@ -156,6 +156,8 @@ export function buildMedicineIndex(medicines: IndexedMedicine[]): MedicineLookup
     addToBucket(med.name || "", med);
     if (med.generic_name) addToBucket(med.generic_name, med);
     if (med.manufacturer) addToBucket(med.manufacturer, med);
+    if (med.sku) addToBucket(med.sku, med);
+    if (med.barcode) addToBucket(med.barcode, med);
   }
   return { byBarcode, byBarcodeAll, buckets, all };
 }
@@ -187,8 +189,8 @@ export function findMedicineBySku<M extends IndexedMedicine>(
 
 export type MedicineSearchOpts = {
   limit?: number;
-  /** Search name / generic / manufacturer / sku. */
-  fields?: ("name" | "generic_name" | "manufacturer" | "sku")[];
+  /** Search name / generic / manufacturer / sku / barcode. */
+  fields?: ("name" | "generic_name" | "manufacturer" | "sku" | "barcode")[];
 };
 
 const DEFAULT_FIELDS: NonNullable<MedicineSearchOpts["fields"]> = [
@@ -239,6 +241,14 @@ function fieldMatches(
   fields: NonNullable<MedicineSearchOpts["fields"]>
 ): boolean {
   for (const f of fields) {
+    if (f === "barcode") {
+      // Barcode keys tolerate spacing: "89 0123 4567 897" matches
+      // a stored "8901234567897".
+      const compact = KEY(String(med.barcode ?? "").replace(/\s+/g, ""));
+      const compactQ = q.replace(/\s+/g, "");
+      if (compact && (compact.includes(q) || compact.includes(compactQ))) return true;
+      continue;
+    }
     const v = KEY((med[f] as string) ?? "");
     if (v && v.includes(q)) return true;
   }

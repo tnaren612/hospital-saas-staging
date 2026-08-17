@@ -62,6 +62,7 @@ export type Medicine = {
   manufacturer: string;
   batch_number: string;
   sku?: string;
+  barcode?: string;
   category?: string;
   purchase_price: number;
   selling_price: number;

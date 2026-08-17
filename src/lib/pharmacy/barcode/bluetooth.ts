@@ -54,6 +54,40 @@ export type MobileScannerStatus =
   | "connected"
   | "error";
 
+/**
+ * Why a phone-scanner connect failed. "not-found" is the ordinary-paired-phone
+ * case: the browser found no device advertising the scanner service — the UI
+ * must say "Phone scanner service not detected", never imply the phone works.
+ */
+export type BluetoothConnectFailure =
+  | "not-found"
+  | "canceled"
+  | "security"
+  | "adapter"
+  | "unknown";
+
+const CONNECT_FAILURE_MESSAGES: Record<
+  Exclude<BluetoothConnectFailure, "unknown">,
+  string
+> = {
+  "not-found": "No phone scanner service was found nearby.",
+  canceled: "Bluetooth connection cancelled.",
+  security: "Bluetooth permission was blocked.",
+  adapter: "No Bluetooth adapter was found.",
+};
+
+/** Classify a requestDevice/connect failure (stable across browsers). */
+export function classifyBluetoothConnectError(error: unknown): BluetoothConnectFailure {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "NotFoundError") return "not-found";
+  if (name === "NotAllowedError" || name === "AbortError") return "canceled";
+  if (name === "SecurityError") return "security";
+  if (name === "NotSupportedError") return "adapter";
+  const message = error instanceof Error ? String(error.message ?? "") : String(error ?? "");
+  if (/bluetooth adapter/i.test(message)) return "adapter";
+  return "unknown";
+}
+
 export type MobileScannerCallbacks = {
   onScan: (raw: string) => void;
   onStatus: (
@@ -61,7 +95,7 @@ export type MobileScannerCallbacks = {
     deviceName?: string,
     reconnectAttempt?: number
   ) => void;
-  onError: (message: string) => void;
+  onError: (message: string, kind?: BluetoothConnectFailure) => void;
 };
 
 /** Transport options — all injectable for deterministic tests. */
@@ -320,9 +354,14 @@ export class MobileScannerGattTransport {
     } catch (error) {
       this.device = null;
       this.setStatus("error");
-      this.callbacks.onError(
-        error instanceof Error ? error.message : "Could not connect to the mobile scanner."
-      );
+      const kind = classifyBluetoothConnectError(error);
+      const message =
+        kind === "unknown"
+          ? error instanceof Error
+            ? error.message
+            : "Could not connect to the mobile scanner."
+          : CONNECT_FAILURE_MESSAGES[kind];
+      this.callbacks.onError(message, kind);
     }
   }
 
@@ -358,7 +397,9 @@ export class MobileScannerGattTransport {
     if (this.reconnectTimer != null) return;
     if (this.reconnectAttempts >= this.opts.maxReconnectAttempts) {
       this.device = null;
-      this.setStatus("disconnected");
+      // Report the attempt count so the UI can say "Scanner disconnected"
+      // (exhausted) instead of "not connected" (fresh) — and offer Reconnect.
+      this.setStatus("disconnected", undefined, this.reconnectAttempts);
       return;
     }
     const delay = Math.min(
