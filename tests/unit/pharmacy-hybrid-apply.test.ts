@@ -12,7 +12,9 @@ import {
   applyCloudSupplier,
   applyCloudCategory,
   applyCloudPurchaseOrder,
+  applyErrorMessage,
   classifyApplyFailure,
+  missingSchemaColumn,
   clientSaleNumber,
   medicineIdentity,
   MemoryHybridCloudStore,
@@ -78,6 +80,20 @@ describe("hybrid apply helpers", () => {
     assert.equal(classifyApplyFailure("Insufficient stock for X. Available: 0"), "conflict");
     assert.equal(classifyApplyFailure("duplicate sale_number"), "failed");
     assert.equal(classifyApplyFailure("network timeout"), "failed");
+  });
+
+  it("extracts a missing PostgREST column so apply can retry without it", () => {
+    assert.equal(
+      missingSchemaColumn(
+        "Could not find the 'amount_paid' column of 'pharmacy_sales' in the schema cache"
+      ),
+      "amount_paid"
+    );
+    assert.equal(missingSchemaColumn("boom"), null);
+    assert.equal(
+      applyErrorMessage({ message: "Could not find the 'amount_paid' column" }),
+      "Could not find the 'amount_paid' column"
+    );
   });
 });
 

@@ -59,6 +59,21 @@ export function classifyApplyFailure(message: string): "conflict" | "failed" {
     : "failed";
 }
 
+/** PostgREST PGRST204: column is not in the live schema cache. */
+export function missingSchemaColumn(message: string): string | null {
+  const m = message.match(/Could not find the '([^']+)' column/i);
+  return m?.[1] || null;
+}
+
+export function applyErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return "Apply failed";
+}
+
 /** Entities that now have a cloud apply path (heal M6 "blocked" queue rows). */
 export const CLOUD_APPLY_ENTITIES = new Set([
   "settings",

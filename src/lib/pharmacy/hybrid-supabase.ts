@@ -2,7 +2,31 @@
  * Supabase adapter for M7 hybrid apply. Service-role client only.
  */
 
-import type { HybridCloudStore } from "./hybrid-apply";
+import {
+  applyErrorMessage,
+  missingSchemaColumn,
+  type HybridCloudStore,
+} from "./hybrid-apply";
+
+async function insertStrippingUnknownColumns(
+  sb: Sb,
+  table: string,
+  row: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  let current: Record<string, unknown> = { ...row };
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const { data, error } = await sb.from(table).insert(current).select().single();
+    if (!error) return data as Record<string, unknown>;
+    const col = missingSchemaColumn(String(error.message || ""));
+    if (!col || !(col in current)) {
+      throw new Error(applyErrorMessage(error));
+    }
+    const { [col]: _dropped, ...rest } = current;
+    void _dropped;
+    current = rest;
+  }
+  throw new Error("Apply failed");
+}
 
 // Service-role client is untyped (custom Database maps). Keep the adapter loose.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,16 +49,7 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
     },
 
     async insertSale(row) {
-      let { data, error } = await sb.from("pharmacy_sales").insert(row).select().single();
-      if (error && /patient_age/i.test(error.message)) {
-        const { patient_age: _age, ...withoutAge } = row;
-        void _age;
-        const retry = await sb.from("pharmacy_sales").insert(withoutAge).select().single();
-        data = retry.data;
-        error = retry.error;
-      }
-      if (error) throw error;
-      return data as Record<string, unknown>;
+      return insertStrippingUnknownColumns(sb, "pharmacy_sales", row);
     },
 
     async findMedicineById(id) {
@@ -65,16 +80,7 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
     },
 
     async insertMedicine(row) {
-      let { data, error } = await sb.from("medicines").insert(row).select().single();
-      if (error && /barcode/i.test(error.message)) {
-        const { barcode: _bc, ...withoutBarcode } = row;
-        void _bc;
-        const retry = await sb.from("medicines").insert(withoutBarcode).select().single();
-        data = retry.data;
-        error = retry.error;
-      }
-      if (error) throw error;
-      return data as Record<string, unknown>;
+      return insertStrippingUnknownColumns(sb, "medicines", row);
     },
 
     async getMedicineStock(id) {
@@ -107,8 +113,7 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
     },
 
     async insertStockMovement(row) {
-      const { error } = await sb.from("pharmacy_stock_movements").insert(row);
-      if (error) throw error;
+      await insertStrippingUnknownColumns(sb, "pharmacy_stock_movements", row);
     },
 
     async findByName(entity, hospitalId, name) {
@@ -127,9 +132,11 @@ export function createSupabaseHybridStore(sb: Sb): HybridCloudStore {
     },
 
     async insertRow(entity, row) {
-      const { data, error } = await sb.from(tableFor(entity)).insert(sanitizeRow(entity, row)).select().single();
-      if (error) throw error;
-      return data as Record<string, unknown>;
+      return insertStrippingUnknownColumns(
+        sb,
+        tableFor(entity),
+        sanitizeRow(entity, row)
+      );
     },
 
     async findPurchaseOrderByNumber(hospitalId, poNumber) {

@@ -26,6 +26,7 @@ import {
   applyCloudMedicine,
   applyCloudPurchaseOrder,
   applyCloudSupplier,
+  applyErrorMessage,
   classifyApplyFailure,
 } from "@/lib/pharmacy/hybrid-apply";
 import { createSupabaseHybridStore } from "@/lib/pharmacy/hybrid-supabase";
@@ -556,7 +557,7 @@ export async function POST(request: Request) {
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Apply failed";
+      const message = applyErrorMessage(err);
       const isConflict = classifyApplyFailure(message) === "conflict";
       if (sb) {
         const ledger = await ledgerLookup(sb, op.id, tenant.hospitalId);
