@@ -749,6 +749,7 @@ export function PosView() {
           items: cart,
           discount: globalDiscount,
           heldByName: cashierName,
+          tenders,
         },
         "local"
       ),
@@ -777,6 +778,9 @@ export function PosView() {
     setGlobalDiscount(Number(held.discount ?? 0) || 0);
     if (held.customer_name) setPatientName(String(held.customer_name));
     if (held.customer_phone) setPatientPhone(String(held.customer_phone));
+    if (Array.isArray(held.tenders) && held.tenders.length) {
+      setTenders(held.tenders as PosPaymentLine[]);
+    }
     await storage.deleteEntity("held_bill", entityId);
     toast.success(`Resumed ${held.reference}`);
     setShowHeld(false);

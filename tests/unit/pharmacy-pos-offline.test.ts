@@ -193,6 +193,28 @@ test("receiptDataFromSale rebuilds from a cached row", () => {
   assert.equal(data!.grand_total, 40);
 });
 
+test("receiptDataFromSale rebuilds from queued payload that stores items not line_items", () => {
+  const row = {
+    sale_number: "LOC-1",
+    patient_name: "Walk-in Customer",
+    grand_total: 40,
+    amount_paid: 40,
+    subtotal: 40,
+    discount: 0,
+    tax: 0,
+    payment_method: "cash",
+    items: [{ name: "Acceptance Sale Med", qty: 1, price: 40, selling_price: 40 }],
+  };
+  const data = receiptDataFromSale(row, {
+    hospital: { name: "H", address: "", phone: "", email: "", gst: "", drug_license: "", logo_url: "" },
+    settings: fallbackSettingsForTest(),
+    cashierName: "Cashier A",
+  });
+  assert.ok(data, "reprint must work from the queued sale payload");
+  assert.equal(data!.items.length, 1);
+  assert.equal(data!.items[0].name, "Acceptance Sale Med");
+});
+
 test("outstanding balances from partial/credit rows", () => {
   const rows = [
     { sale_number: "S1", patient_name: "A", grand_total: 100, amount_paid: 60, payment_method: "cash", created_at: "2026-07-31T09:00:00Z" },
@@ -252,6 +274,24 @@ test("heldBillPayload + heldItemsToCart round-trip", () => {
   assert.equal(back.length, 2);
   assert.equal(back[0].name, "Paracetamol 500mg");
   assert.equal(back[0].quantity, 2);
+});
+
+test("held bill round-trip preserves tender payment state", () => {
+  const payload = heldBillPayload(
+    {
+      reference: "HLD-PAY",
+      customerName: "Hold Patient",
+      items: cart,
+      discount: 0,
+      heldByName: "Cashier A",
+      tenders: [{ methodId: "cash", amount: 44.8 }],
+    },
+    "local"
+  );
+  const withTenders = payload as typeof payload & { tenders?: { methodId: string; amount: number }[] };
+  assert.equal(withTenders.tenders?.length, 1);
+  assert.equal(withTenders.tenders?.[0]?.methodId, "cash");
+  assert.equal(withTenders.tenders?.[0]?.amount, 44.8);
 });
 
 test("toPosLineItems maps cart lines", () => {

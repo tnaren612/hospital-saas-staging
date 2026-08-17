@@ -284,7 +284,9 @@ export function receiptDataFromSale(
 ): ReceiptData | null {
   const itemsRaw = Array.isArray(row.line_items)
     ? (row.line_items as Array<Record<string, unknown>>)
-    : [];
+    : Array.isArray(row.items)
+      ? (row.items as Array<Record<string, unknown>>)
+      : [];
   const items: CartLine[] = itemsRaw.map((i) => ({
     medicine_id: (i.medicine_id as string) || undefined,
     name: String(i.name || ""),
@@ -488,6 +490,7 @@ export type HeldBillDraft = {
   discount: number;
   notes?: string;
   heldByName?: string;
+  tenders?: PosPaymentLine[];
 };
 
 /** Build the payload for the offline held-bill queue entry. */
@@ -517,6 +520,10 @@ export function heldBillPayload(
     discount: draft.discount,
     notes: draft.notes || null,
     held_by_name: draft.heldByName || null,
+    ...(draft.tenders ? { tenders: draft.tenders } : {}),
+  } as Omit<PharmacyHeldBill, "id" | "created_at" | "hospital_id"> & {
+    hospital_id: string;
+    tenders?: PosPaymentLine[];
   };
 }
 
