@@ -392,6 +392,30 @@ test("unknown barcode: medicine + opening batch commit atomically (action=medici
   }
 });
 
+test("cart: same barcode with different ids merges into one line", () => {
+  const first: CatalogMed = {
+    id: "sqlite-1",
+    name: "Acceptance New Med",
+    barcode: "8907753476200",
+    selling_price: 56,
+    stock_qty: 10,
+  };
+  const second: CatalogMed = {
+    id: "cache-uuid",
+    name: "Acceptance New Med",
+    barcode: "8907753476200",
+    selling_price: 56,
+    stock_qty: 10,
+  };
+  const once = addLineToCart([] as CatalogCartLine[], first, 1, 12);
+  assert.equal(once.ok, true);
+  if (!once.ok) return;
+  const twice = addLineToCart(once.cart, second, 1, 12);
+  assert.equal(twice.ok, true);
+  assert.equal(twice.ok ? twice.cart.length : 0, 1, "must not create a second cart row");
+  assert.equal(twice.ok ? twice.cart[0]?.quantity : 0, 2);
+});
+
 test("cart: functional updater composes two rapid adds from the same snapshot", () => {
   const a: CatalogMed = { id: "a", name: "Alpha", selling_price: 10, stock_qty: 10 };
   const b: CatalogMed = { id: "b", name: "Beta", selling_price: 20, stock_qty: 10 };

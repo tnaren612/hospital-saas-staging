@@ -320,6 +320,8 @@ export function PosView() {
     }
     for (const rec of cachedMeds) {
       const d = rec.data as Record<string, unknown>;
+      const barcode = d.barcode ? String(d.barcode) : "";
+      if (barcode && [...map.values()].some((m) => String(m.barcode ?? "") === barcode)) continue;
       map.set(rec.id, {
         id: rec.id,
         name: String(d.name ?? ""),
@@ -463,7 +465,6 @@ export function PosView() {
       setScannerFocusSignal((x) => x + 1);
       return;
     }
-    const id = createUuid();
     const name = unknownForm.name.trim();
     const price = Number(unknownForm.price) || 0;
     const stock = Number(unknownForm.stock) || 0;
@@ -497,18 +498,19 @@ export function PosView() {
         return;
       }
 
+      const sqliteId = String(created.data.id);
       await enqueueMutation(storage, {
-        id,
+        id: sqliteId,
         hospitalId: "local",
         entity: "medicine",
         action: "create",
         payload: {
-          _clientId: id,
+          _clientId: sqliteId,
           ...medicinePayload,
           created_at: timestamp,
           updated_at: timestamp,
         },
-        targetKey: `medicine::${id}`,
+        targetKey: `medicine::${sqliteId}`,
       });
 
       await mergeLocalMedicines();
@@ -520,7 +522,7 @@ export function PosView() {
 
       addToCart(
         {
-          id: String(created.data.id),
+          id: sqliteId,
           name,
           sku: unknownCode,
           barcode: unknownCode,

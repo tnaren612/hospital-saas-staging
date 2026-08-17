@@ -42,6 +42,7 @@ export type CatalogCartLine = {
   name: string;
   generic_name?: string;
   manufacturer?: string;
+  barcode?: string | null;
   batch_number?: string | null;
   expiry_date?: string | null;
   mrp?: number;
@@ -211,9 +212,14 @@ export function addLineToCart<C extends CatalogCartLine>(
   gstPercent: number,
   opts?: { now?: Date }
 ): { ok: true; cart: C[] } | { ok: false; message: string } {
+  const barcodeKey = med.barcode ? String(med.barcode) : "";
   const verdict = canAddToCart(med, {
     inCartQty: cart
-      .filter((c) => c.medicine_id === med.id)
+      .filter(
+        (c) =>
+          c.medicine_id === med.id ||
+          (!!barcodeKey && String(c.barcode ?? "") === barcodeKey)
+      )
       .reduce((s, c) => s + c.quantity, 0),
     qty,
     now: opts?.now,
@@ -221,7 +227,10 @@ export function addLineToCart<C extends CatalogCartLine>(
   if (!verdict.ok) return verdict;
 
   const price = Number(med.selling_price ?? 0);
-  const existing = cart.find((c) => c.medicine_id === med.id);
+  const barcode = med.barcode ? String(med.barcode) : "";
+  const sameLine = (c: CatalogCartLine) =>
+    c.medicine_id === med.id || (!!barcode && String(c.barcode ?? "") === barcode);
+  const existing = cart.find(sameLine);
   const next =
     existing === undefined
       ? [
@@ -231,6 +240,7 @@ export function addLineToCart<C extends CatalogCartLine>(
             name: String(med.name ?? ""),
             generic_name: med.generic_name ?? undefined,
             manufacturer: med.manufacturer ?? undefined,
+            barcode: med.barcode ?? undefined,
             batch_number: med.batch_number ?? undefined,
             expiry_date: med.expiry_date ?? null,
             mrp: price,
@@ -240,7 +250,7 @@ export function addLineToCart<C extends CatalogCartLine>(
           } as C,
         ]
       : cart.map((c) =>
-          c.medicine_id === med.id
+          sameLine(c)
             ? { ...c, quantity: c.quantity + Math.max(1, Math.floor(qty)) }
             : c
         );
